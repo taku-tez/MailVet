@@ -1,5 +1,11 @@
 /**
  * Google Cloud DNS domain source
+ * 
+ * Authentication methods (in order of precedence):
+ * 1. Service account key file (--gcp-key-file or GOOGLE_APPLICATION_CREDENTIALS)
+ * 2. gcloud auth (gcloud auth login / gcloud auth application-default login)
+ * 3. Compute Engine default service account
+ * 4. Workload Identity (GKE)
  */
 
 import { exec } from 'node:child_process';
@@ -11,6 +17,8 @@ const execAsync = promisify(exec);
 export interface GCPOptions {
   project?: string;
   account?: string;
+  keyFile?: string;
+  impersonateServiceAccount?: string;
 }
 
 export class GCPSource implements CloudSource {
@@ -27,16 +35,39 @@ export class GCPSource implements CloudSource {
 }
 
 /**
+ * Build CLI arguments and environment for GCP commands
+ */
+function buildGCPConfig(options: GCPOptions): { args: string; env: Record<string, string> } {
+  const args: string[] = [];
+  const env: Record<string, string> = {};
+
+  if (options.project) {
+    args.push(`--project=${options.project}`);
+  }
+  if (options.account) {
+    args.push(`--account=${options.account}`);
+  }
+  if (options.impersonateServiceAccount) {
+    args.push(`--impersonate-service-account=${options.impersonateServiceAccount}`);
+  }
+  if (options.keyFile) {
+    env.GOOGLE_APPLICATION_CREDENTIALS = options.keyFile;
+  }
+
+  return { args: args.join(' '), env };
+}
+
+/**
  * Get all domains from Google Cloud DNS managed zones
  */
 export async function getCloudDNSDomains(options: GCPOptions = {}): Promise<string[]> {
-  const projectArg = options.project ? `--project=${options.project}` : '';
-  const accountArg = options.account ? `--account=${options.account}` : '';
+  const { args, env } = buildGCPConfig(options);
 
   try {
     // List all managed zones
     const { stdout } = await execAsync(
-      `gcloud dns managed-zones list ${projectArg} ${accountArg} --format=json`
+      `gcloud dns managed-zones list ${args} --format=json`,
+      { env: { ...process.env, ...env } }
     );
 
     const zones: Array<{ 

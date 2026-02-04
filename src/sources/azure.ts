@@ -1,5 +1,12 @@
 /**
  * Azure DNS domain source
+ * 
+ * Authentication methods:
+ * 1. Service principal (--azure-client-id, --azure-client-secret, --azure-tenant-id)
+ * 2. Environment variables (AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_TENANT_ID)
+ * 3. az login (interactive or device code)
+ * 4. Managed Identity (Azure VM, AKS, App Service)
+ * 5. Azure CLI cached credentials
  */
 
 import { exec } from 'node:child_process';
@@ -11,6 +18,10 @@ const execAsync = promisify(exec);
 export interface AzureOptions {
   subscription?: string;
   resourceGroup?: string;
+  clientId?: string;
+  clientSecret?: string;
+  tenantId?: string;
+  useManagedIdentity?: boolean;
 }
 
 export class AzureSource implements CloudSource {
@@ -27,9 +38,34 @@ export class AzureSource implements CloudSource {
 }
 
 /**
+ * Login with service principal if credentials provided
+ */
+async function ensureAzureAuth(options: AzureOptions): Promise<void> {
+  if (options.clientId && options.clientSecret && options.tenantId) {
+    try {
+      await execAsync(
+        `az login --service-principal -u "${options.clientId}" -p "${options.clientSecret}" --tenant "${options.tenantId}" --output none`
+      );
+    } catch (err) {
+      throw new Error(`Azure service principal login failed: ${(err as Error).message}`);
+    }
+  } else if (options.useManagedIdentity) {
+    try {
+      await execAsync('az login --identity --output none');
+    } catch (err) {
+      throw new Error(`Azure managed identity login failed: ${(err as Error).message}`);
+    }
+  }
+  // Otherwise rely on existing az login session
+}
+
+/**
  * Get all domains from Azure DNS zones
  */
 export async function getAzureDNSDomains(options: AzureOptions = {}): Promise<string[]> {
+  // Handle service principal or managed identity auth
+  await ensureAzureAuth(options);
+
   const subscriptionArg = options.subscription ? `--subscription "${options.subscription}"` : '';
   const rgArg = options.resourceGroup ? `-g "${options.resourceGroup}"` : '';
 

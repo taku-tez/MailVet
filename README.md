@@ -54,24 +54,39 @@ mailvet scan -f domains.txt -c 10
 ### Cloud Provider Integration
 
 ```bash
-# AWS Route53 - scan all hosted zones
+# AWS Route53
 mailvet scan --aws
 mailvet scan --aws --aws-profile production
+mailvet scan --aws --aws-region us-east-1
 
 # Google Cloud DNS
 mailvet scan --gcp
 mailvet scan --gcp --gcp-project my-project
+mailvet scan --gcp --gcp-key-file /path/to/service-account.json
+mailvet scan --gcp --gcp-impersonate sa@project.iam.gserviceaccount.com
 
 # Azure DNS
 mailvet scan --azure
 mailvet scan --azure --azure-subscription xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+mailvet scan --azure --azure-client-id xxx --azure-client-secret xxx --azure-tenant-id xxx
 
-# Cloudflare (uses CLOUDFLARE_API_TOKEN env var)
-mailvet scan --cloudflare
+# Cloudflare
+mailvet scan --cloudflare                              # uses CLOUDFLARE_API_TOKEN
+mailvet scan --cloudflare --cloudflare-token xxx       # explicit token
+mailvet scan --cloudflare --cloudflare-email x@y --cloudflare-key xxx  # Global API Key
 
 # Combine multiple sources
 mailvet scan --aws --gcp --cloudflare -o results.json --json
 ```
+
+### Authentication Methods
+
+| Provider | Methods |
+|----------|---------|
+| **AWS** | Profile (`--aws-profile`), Env vars (`AWS_ACCESS_KEY_ID`), IAM role, SSO |
+| **GCP** | Key file (`--gcp-key-file`), `gcloud auth`, Impersonation, Compute Engine SA |
+| **Azure** | Service principal (`--azure-client-id/secret/tenant`), `az login`, Managed Identity |
+| **Cloudflare** | API Token (`--cloudflare-token` or `CLOUDFLARE_API_TOKEN`), Global API Key |
 
 ### List Domains from Providers
 

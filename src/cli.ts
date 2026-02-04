@@ -57,11 +57,21 @@ program
   .option('--stdin', 'Read domains from stdin')
   .option('--aws', 'Scan all AWS Route53 hosted zones')
   .option('--aws-profile <profile>', 'AWS profile to use')
+  .option('--aws-region <region>', 'AWS region')
+  .option('--aws-role-arn <arn>', 'AWS IAM role to assume')
   .option('--gcp', 'Scan all Google Cloud DNS zones')
   .option('--gcp-project <project>', 'GCP project ID')
+  .option('--gcp-key-file <path>', 'GCP service account key file')
+  .option('--gcp-impersonate <account>', 'GCP service account to impersonate')
   .option('--azure', 'Scan all Azure DNS zones')
   .option('--azure-subscription <id>', 'Azure subscription ID')
+  .option('--azure-client-id <id>', 'Azure service principal client ID')
+  .option('--azure-client-secret <secret>', 'Azure service principal client secret')
+  .option('--azure-tenant-id <id>', 'Azure tenant ID')
   .option('--cloudflare', 'Scan all Cloudflare zones')
+  .option('--cloudflare-token <token>', 'Cloudflare API token')
+  .option('--cloudflare-email <email>', 'Cloudflare account email (with --cloudflare-key)')
+  .option('--cloudflare-key <key>', 'Cloudflare Global API key')
   .option('-o, --output <path>', 'Write results to file')
   .option('--json', 'Output as JSON')
   .option('-c, --concurrency <n>', 'Concurrent checks', '5')
@@ -90,7 +100,11 @@ program
     if (options.aws) {
       console.error('Fetching domains from AWS Route53...');
       try {
-        const awsDomains = await getRoute53Domains({ profile: options.awsProfile });
+        const awsDomains = await getRoute53Domains({ 
+          profile: options.awsProfile,
+          region: options.awsRegion,
+          // Role assumption handled separately if needed
+        });
         domains.push(...awsDomains);
         sources.push(`AWS Route53 (${awsDomains.length})`);
       } catch (err) {
@@ -101,7 +115,11 @@ program
     if (options.gcp) {
       console.error('Fetching domains from Google Cloud DNS...');
       try {
-        const gcpDomains = await getCloudDNSDomains({ project: options.gcpProject });
+        const gcpDomains = await getCloudDNSDomains({ 
+          project: options.gcpProject,
+          keyFile: options.gcpKeyFile,
+          impersonateServiceAccount: options.gcpImpersonate,
+        });
         domains.push(...gcpDomains);
         sources.push(`GCP Cloud DNS (${gcpDomains.length})`);
       } catch (err) {
@@ -112,7 +130,12 @@ program
     if (options.azure) {
       console.error('Fetching domains from Azure DNS...');
       try {
-        const azureDomains = await getAzureDNSDomains({ subscription: options.azureSubscription });
+        const azureDomains = await getAzureDNSDomains({ 
+          subscription: options.azureSubscription,
+          clientId: options.azureClientId,
+          clientSecret: options.azureClientSecret,
+          tenantId: options.azureTenantId,
+        });
         domains.push(...azureDomains);
         sources.push(`Azure DNS (${azureDomains.length})`);
       } catch (err) {
@@ -123,7 +146,11 @@ program
     if (options.cloudflare) {
       console.error('Fetching domains from Cloudflare...');
       try {
-        const cfDomains = await getCloudflareDomains();
+        const cfDomains = await getCloudflareDomains({
+          apiToken: options.cloudflareToken,
+          email: options.cloudflareEmail,
+          apiKey: options.cloudflareKey,
+        });
         domains.push(...cfDomains);
         sources.push(`Cloudflare (${cfDomains.length})`);
       } catch (err) {
@@ -175,18 +202,30 @@ program
   .description('List domains from cloud DNS providers')
   .option('--aws', 'List AWS Route53 hosted zones')
   .option('--aws-profile <profile>', 'AWS profile to use')
+  .option('--aws-region <region>', 'AWS region')
   .option('--gcp', 'List Google Cloud DNS zones')
   .option('--gcp-project <project>', 'GCP project ID')
+  .option('--gcp-key-file <path>', 'GCP service account key file')
+  .option('--gcp-impersonate <account>', 'GCP service account to impersonate')
   .option('--azure', 'List Azure DNS zones')
   .option('--azure-subscription <id>', 'Azure subscription ID')
+  .option('--azure-client-id <id>', 'Azure service principal client ID')
+  .option('--azure-client-secret <secret>', 'Azure service principal secret')
+  .option('--azure-tenant-id <id>', 'Azure tenant ID')
   .option('--cloudflare', 'List Cloudflare zones')
+  .option('--cloudflare-token <token>', 'Cloudflare API token')
+  .option('--cloudflare-email <email>', 'Cloudflare account email')
+  .option('--cloudflare-key <key>', 'Cloudflare Global API key')
   .option('--json', 'Output as JSON')
   .action(async (options) => {
     const allDomains: Record<string, string[]> = {};
 
     if (options.aws) {
       try {
-        allDomains['aws'] = await getRoute53Domains({ profile: options.awsProfile });
+        allDomains['aws'] = await getRoute53Domains({ 
+          profile: options.awsProfile,
+          region: options.awsRegion,
+        });
       } catch (err) {
         console.error(`AWS: ${(err as Error).message}`);
         allDomains['aws'] = [];
@@ -195,7 +234,11 @@ program
 
     if (options.gcp) {
       try {
-        allDomains['gcp'] = await getCloudDNSDomains({ project: options.gcpProject });
+        allDomains['gcp'] = await getCloudDNSDomains({ 
+          project: options.gcpProject,
+          keyFile: options.gcpKeyFile,
+          impersonateServiceAccount: options.gcpImpersonate,
+        });
       } catch (err) {
         console.error(`GCP: ${(err as Error).message}`);
         allDomains['gcp'] = [];
@@ -204,7 +247,12 @@ program
 
     if (options.azure) {
       try {
-        allDomains['azure'] = await getAzureDNSDomains({ subscription: options.azureSubscription });
+        allDomains['azure'] = await getAzureDNSDomains({ 
+          subscription: options.azureSubscription,
+          clientId: options.azureClientId,
+          clientSecret: options.azureClientSecret,
+          tenantId: options.azureTenantId,
+        });
       } catch (err) {
         console.error(`Azure: ${(err as Error).message}`);
         allDomains['azure'] = [];
@@ -213,7 +261,11 @@ program
 
     if (options.cloudflare) {
       try {
-        allDomains['cloudflare'] = await getCloudflareDomains();
+        allDomains['cloudflare'] = await getCloudflareDomains({
+          apiToken: options.cloudflareToken,
+          email: options.cloudflareEmail,
+          apiKey: options.cloudflareKey,
+        });
       } catch (err) {
         console.error(`Cloudflare: ${(err as Error).message}`);
         allDomains['cloudflare'] = [];

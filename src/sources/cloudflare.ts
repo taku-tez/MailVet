@@ -1,13 +1,27 @@
 /**
  * Cloudflare DNS domain source
+ * 
+ * Authentication methods (in order of precedence):
+ * 1. API Token (recommended): --cloudflare-token or CLOUDFLARE_API_TOKEN
+ * 2. Global API Key: --cloudflare-email + --cloudflare-key 
+ *    or CLOUDFLARE_EMAIL + CLOUDFLARE_API_KEY
+ * 
+ * API Token is recommended as it supports fine-grained permissions.
+ * Create at: https://dash.cloudflare.com/profile/api-tokens
+ * Required permission: Zone.Zone:Read
  */
 
 import type { CloudSource } from '../types.js';
 
 export interface CloudflareOptions {
+  /** API Token (recommended) */
   apiToken?: string;
+  /** Email for Global API Key auth */
   email?: string;
+  /** Global API Key */
   apiKey?: string;
+  /** Filter by account ID */
+  accountId?: string;
 }
 
 export class CloudflareSource implements CloudSource {
@@ -52,10 +66,20 @@ export async function getCloudflareDomains(options: CloudflareOptions = {}): Pro
   let page = 1;
   const perPage = 50;
 
+  // Build query params
+  const params = new URLSearchParams({
+    page: String(page),
+    per_page: String(perPage),
+  });
+  if (options.accountId) {
+    params.set('account.id', options.accountId);
+  }
+
   try {
     while (true) {
+      params.set('page', String(page));
       const response = await fetch(
-        `https://api.cloudflare.com/client/v4/zones?page=${page}&per_page=${perPage}`,
+        `https://api.cloudflare.com/client/v4/zones?${params}`,
         { headers }
       );
 
