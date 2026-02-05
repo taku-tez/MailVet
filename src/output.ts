@@ -106,6 +106,14 @@ export function formatResult(result: DomainResult, verbose = false): string {
   // MX
   lines.push(formatSection('MX', result.mx.found, () => {
     const sectionLines: string[] = [];
+    
+    // Check for Null MX (RFC 7505) - always show this prominently
+    const hasNullMX = result.mx.records.some(r => r.exchange === '.' || r.exchange === '');
+    if (hasNullMX) {
+      sectionLines.push(`   ${INFO} Null MX (RFC 7505) - domain does not accept email`);
+      return sectionLines;
+    }
+    
     for (const mx of result.mx.records.slice(0, 3)) {
       sectionLines.push(`   ${CHECK} ${mx.exchange} (pri: ${mx.priority})`);
     }
@@ -180,6 +188,15 @@ export function formatResult(result: DomainResult, verbose = false): string {
         if (verbose) {
           for (const endpoint of result.tlsRpt.rua) {
             sectionLines.push(`      - ${truncate(endpoint, 50)}`);
+          }
+          // Show endpoint status if verified
+          if (result.tlsRpt.endpointStatus && result.tlsRpt.endpointStatus.length > 0) {
+            sectionLines.push(`   ${INFO} Endpoint verification:`);
+            for (const status of result.tlsRpt.endpointStatus) {
+              const icon = status.reachable ? CHECK : FAIL;
+              const errorMsg = status.error ? ` (${status.error})` : '';
+              sectionLines.push(`      ${icon} ${status.type}: ${truncate(status.endpoint, 40)}${errorMsg}`);
+            }
           }
         }
       }

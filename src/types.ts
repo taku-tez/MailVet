@@ -82,11 +82,19 @@ export interface MTASTSResult {
   issues: Issue[];
 }
 
+export interface EndpointStatus {
+  endpoint: string;
+  type: 'mailto' | 'https';
+  reachable?: boolean;
+  error?: string;
+}
+
 export interface TLSRPTResult {
   found: boolean;
   record?: string;
   version?: string;
   rua?: string[];
+  endpointStatus?: EndpointStatus[];
   issues: Issue[];
 }
 

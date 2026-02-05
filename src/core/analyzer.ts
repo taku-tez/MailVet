@@ -55,6 +55,12 @@ export async function analyzeDomain(
   const dkimSelectors = options.dkimSelectors?.length ? options.dkimSelectors : COMMON_DKIM_SELECTORS;
   const timeout = options.timeout || 10000;
   
+  /**
+   * Wrap a promise with timeout. On timeout, the promise is rejected but
+   * the underlying operation may continue (DNS queries cannot be cancelled).
+   * HTTP requests (MTA-STS/TLS-RPT) use AbortSignal internally for true cancellation.
+   * Promise.allSettled handles rejections gracefully without losing other results.
+   */
   const wrapWithTimeout = async <T>(promise: Promise<T>, name: string): Promise<T> => {
     let timeoutId: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {

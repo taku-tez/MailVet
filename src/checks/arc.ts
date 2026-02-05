@@ -45,13 +45,15 @@ export function checkARCReadiness(
       recommendation: 'Configure DKIM to enable ARC signing capability'
     });
   } else {
-    // Check for strong DKIM keys
-    const hasStrongKey = dkim.selectors.some(s => s.keyLength && s.keyLength >= 2048);
+    // Check for strong DKIM keys (ed25519 is always considered strong)
+    const hasStrongKey = dkim.selectors.some(s => 
+      s.keyType === 'ed25519' || (s.keyLength && s.keyLength >= 2048)
+    );
     if (!hasStrongKey) {
       issues.push({
         severity: 'low',
-        message: 'DKIM keys should be 2048-bit or stronger for ARC',
-        recommendation: 'Upgrade DKIM keys to 2048-bit for better ARC compatibility'
+        message: 'DKIM keys should be 2048-bit RSA or ed25519 for ARC',
+        recommendation: 'Upgrade DKIM keys to 2048-bit RSA or ed25519 for better ARC compatibility'
       });
     }
   }

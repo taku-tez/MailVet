@@ -5,17 +5,10 @@
  * when other mail servers try to send email to your domain.
  */
 
-import type { TLSRPTResult, Issue } from '../types.js';
+import type { TLSRPTResult, Issue, EndpointStatus } from '../types.js';
 import { dns, isDNSNotFoundError, resolveTxtRecords, filterRecordsByPrefix } from '../utils/dns.js';
 import { extractTag, extractTagValues, isValidEmail, parseMailtoUri } from '../utils/parser.js';
 import { DNS_PREFIX, DNS_SUBDOMAIN, DEFAULT_HTTP_TIMEOUT_MS } from '../constants.js';
-
-export interface EndpointStatus {
-  endpoint: string;
-  type: 'mailto' | 'https';
-  reachable?: boolean;
-  error?: string;
-}
 
 export interface TLSRPTOptions {
   verifyEndpoints?: boolean;

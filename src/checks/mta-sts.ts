@@ -44,6 +44,21 @@ export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
     const version = extractTag(dnsRecord, 'v');
     const id = extractTag(dnsRecord, 'id');
 
+    // Validate version tag (must be STSv1)
+    if (!version) {
+      issues.push({
+        severity: 'high',
+        message: 'MTA-STS record missing version tag (v=)',
+        recommendation: 'Add v=STSv1 at the start of the MTA-STS record'
+      });
+    } else if (version.toLowerCase() !== 'stsv1') {
+      issues.push({
+        severity: 'medium',
+        message: `Unexpected MTA-STS version: "${version}" (expected STSv1)`,
+        recommendation: 'Use v=STSv1 for the version tag'
+      });
+    }
+
     if (!id) {
       issues.push({
         severity: 'high',
@@ -83,7 +98,7 @@ export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
 
 interface PolicyFetchResult {
   ok: boolean;
-  policy?: MTASTSPolicy;
+  policy?: ParsedPolicy;
   status?: number;
   reason?: 'timeout' | 'network' | 'http_error' | 'parse_error';
   error?: string;
@@ -117,7 +132,7 @@ function addPolicyFetchError(result: PolicyFetchResult, domain: string, issues: 
   }
 }
 
-function validatePolicy(policy: MTASTSPolicy, issues: Issue[]): void {
+function validatePolicy(policy: ParsedPolicy, issues: Issue[]): void {
   // Check required version tag (RFC 8461)
   if (!policy.version) {
     issues.push({
@@ -135,11 +150,20 @@ function validatePolicy(policy: MTASTSPolicy, issues: Issue[]): void {
 
   // Check required mode tag
   if (!policy.mode) {
-    issues.push({
-      severity: 'high',
-      message: 'MTA-STS policy missing required mode field',
-      recommendation: 'Add "mode: enforce" or "mode: testing" to the policy file'
-    });
+    // Distinguish between missing mode and invalid mode value
+    if (policy.rawMode) {
+      issues.push({
+        severity: 'high',
+        message: `Invalid MTA-STS mode value: "${policy.rawMode}" (expected enforce, testing, or none)`,
+        recommendation: 'Use a valid mode: "enforce", "testing", or "none"'
+      });
+    } else {
+      issues.push({
+        severity: 'high',
+        message: 'MTA-STS policy missing required mode field',
+        recommendation: 'Add "mode: enforce" or "mode: testing" to the policy file'
+      });
+    }
   } else if (policy.mode === 'none') {
     issues.push({
       severity: 'high',
@@ -151,12 +175,6 @@ function validatePolicy(policy: MTASTSPolicy, issues: Issue[]): void {
       severity: 'low',
       message: 'MTA-STS policy in testing mode',
       recommendation: 'Consider switching to "enforce" mode after validation'
-    });
-  } else if (!['enforce', 'testing', 'none'].includes(policy.mode)) {
-    issues.push({
-      severity: 'high',
-      message: `Invalid MTA-STS mode: "${policy.mode}"`,
-      recommendation: 'Use "mode: enforce", "mode: testing", or "mode: none"'
     });
   }
 
@@ -222,8 +240,12 @@ async function fetchMTASTSPolicy(domain: string): Promise<PolicyFetchResult> {
   }
 }
 
-function parseMTASTSPolicy(text: string): MTASTSPolicy {
-  const policy: MTASTSPolicy = { mx: [] };
+interface ParsedPolicy extends MTASTSPolicy {
+  rawMode?: string; // Original mode value before validation
+}
+
+function parseMTASTSPolicy(text: string): ParsedPolicy {
+  const policy: ParsedPolicy = { mx: [] };
   const lines = text.split('\n');
 
   for (const line of lines) {
@@ -241,8 +263,9 @@ function parseMTASTSPolicy(text: string): MTASTSPolicy {
         policy.version = value;
         break;
       case 'mode':
-        if (['enforce', 'testing', 'none'].includes(value)) {
-          policy.mode = value as 'enforce' | 'testing' | 'none';
+        policy.rawMode = value; // Keep raw value for error reporting
+        if (['enforce', 'testing', 'none'].includes(value.toLowerCase())) {
+          policy.mode = value.toLowerCase() as 'enforce' | 'testing' | 'none';
         }
         break;
       case 'mx':
