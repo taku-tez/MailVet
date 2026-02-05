@@ -7,6 +7,10 @@ import type {
   DKIMResult, 
   DMARCResult, 
   MXResult, 
+  BIMIResult,
+  MTASTSResult,
+  TLSRPTResult,
+  ARCReadinessResult,
   Grade 
 } from '../types.js';
 
@@ -17,6 +21,17 @@ interface GradeResult {
 
 /**
  * Calculate grade based on email security configuration
+ * 
+ * Base scoring (max 100 points from core checks):
+ * - SPF: max 35 points
+ * - DKIM: max 25 points
+ * - DMARC: max 40 points
+ * 
+ * Bonus points (up to +15, capped at 100 total):
+ * - BIMI: +3 (with VMC: +5)
+ * - MTA-STS enforce: +4 (testing: +2)
+ * - TLS-RPT: +3
+ * - ARC ready: +3
  * 
  * Grading criteria:
  * - A (90-100): SPF (-all) + DKIM + DMARC (reject)
@@ -29,7 +44,11 @@ export function calculateGrade(
   spf: SPFResult,
   dkim: DKIMResult,
   dmarc: DMARCResult,
-  mx: MXResult
+  mx: MXResult,
+  bimi?: BIMIResult,
+  mtaSts?: MTASTSResult,
+  tlsRpt?: TLSRPTResult,
+  arc?: ARCReadinessResult
 ): GradeResult {
   let score = 0;
 
@@ -93,6 +112,43 @@ export function calculateGrade(
     }
   }
 
+  // Bonus points for advanced features (max +15)
+  let bonus = 0;
+
+  // BIMI bonus (+3 base, +5 with VMC)
+  if (bimi?.found) {
+    // Only award points if DMARC prerequisite is met
+    const dmarcOk = dmarc.found && dmarc.policy && dmarc.policy !== 'none';
+    if (dmarcOk) {
+      bonus += 3;
+      if (bimi.certificateUrl) {
+        bonus += 2; // Additional for VMC
+      }
+    }
+  }
+
+  // MTA-STS bonus (+4 enforce, +2 testing)
+  if (mtaSts?.found && mtaSts.policy?.mode) {
+    if (mtaSts.policy.mode === 'enforce') {
+      bonus += 4;
+    } else if (mtaSts.policy.mode === 'testing') {
+      bonus += 2;
+    }
+  }
+
+  // TLS-RPT bonus (+3)
+  if (tlsRpt?.found && tlsRpt.rua && tlsRpt.rua.length > 0) {
+    bonus += 3;
+  }
+
+  // ARC readiness bonus (+3)
+  if (arc?.ready && arc.canSign) {
+    bonus += 3;
+  }
+
+  // Apply bonus (capped so total doesn't exceed 100)
+  score = Math.min(100, score + Math.min(bonus, 15));
+
   // Clamp score to 0-100
   score = Math.max(0, Math.min(100, score));
 
@@ -120,7 +176,11 @@ export function generateRecommendations(
   spf: SPFResult,
   dkim: DKIMResult,
   dmarc: DMARCResult,
-  mx: MXResult
+  mx: MXResult,
+  bimi?: BIMIResult,
+  mtaSts?: MTASTSResult,
+  tlsRpt?: TLSRPTResult,
+  arc?: ARCReadinessResult
 ): string[] {
   const recommendations: Array<{ priority: number; text: string }> = [];
 
@@ -194,6 +254,41 @@ export function generateRecommendations(
       priority: 10,
       text: `Reduce SPF DNS lookups (${spf.lookupCount}/10) to avoid evaluation failures`
     });
+  }
+
+  // Advanced feature recommendations
+  if (!mtaSts?.found) {
+    recommendations.push({
+      priority: 11,
+      text: 'Add MTA-STS to enforce TLS for incoming mail'
+    });
+  } else if (mtaSts.policy?.mode === 'testing') {
+    recommendations.push({
+      priority: 14,
+      text: 'Upgrade MTA-STS from testing to enforce mode'
+    });
+  }
+
+  if (!tlsRpt?.found) {
+    recommendations.push({
+      priority: 12,
+      text: 'Add TLS-RPT to receive TLS connection failure reports'
+    });
+  }
+
+  // BIMI recommendation (only if DMARC is properly configured)
+  if (dmarc.found && dmarc.policy && dmarc.policy !== 'none') {
+    if (!bimi?.found) {
+      recommendations.push({
+        priority: 15,
+        text: 'Add BIMI to display your brand logo in email clients'
+      });
+    } else if (bimi.found && !bimi.certificateUrl) {
+      recommendations.push({
+        priority: 16,
+        text: 'Add a VMC certificate to BIMI for wider logo display support'
+      });
+    }
   }
 
   // Sort by priority and return texts

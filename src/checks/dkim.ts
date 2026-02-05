@@ -3,6 +3,7 @@
  */
 
 import dns from 'node:dns/promises';
+import crypto from 'node:crypto';
 import type { DKIMResult, DKIMSelector, Issue } from '../types.js';
 import { COMMON_DKIM_SELECTORS } from '../types.js';
 
@@ -107,7 +108,7 @@ async function checkDKIMSelector(
 
 function extractKeyType(record: string): string | undefined {
   const match = record.match(/k=([^;\s]+)/i);
-  return match ? match[1] : 'rsa'; // Default is RSA
+  return match ? match[1].toLowerCase() : 'rsa'; // Default is RSA
 }
 
 function extractKeyLength(record: string, keyType?: string): number | undefined {
@@ -125,19 +126,38 @@ function extractKeyLength(record: string, keyType?: string): number | undefined 
   }
 
   try {
-    // Base64 decode and estimate key length
-    // RSA public key length ≈ base64 length * 6 / 8 * 8 (bits)
-    const decoded = Buffer.from(publicKey, 'base64');
-    // For RSA, the modulus is roughly the key size
-    // This is a rough estimate: DER encoded RSA public key
-    const keyBits = decoded.length * 8;
+    // Try to parse as actual RSA public key using crypto module
+    const derKey = Buffer.from(publicKey, 'base64');
+    
+    // Construct PEM format for crypto.createPublicKey
+    const pem = `-----BEGIN PUBLIC KEY-----\n${publicKey.match(/.{1,64}/g)?.join('\n')}\n-----END PUBLIC KEY-----`;
+    
+    try {
+      const keyObject = crypto.createPublicKey(pem);
+      const keyDetail = keyObject.asymmetricKeyDetails;
+      
+      if (keyDetail?.modulusLength) {
+        return keyDetail.modulusLength;
+      }
+    } catch {
+      // Fall back to estimation if crypto parsing fails
+    }
+    
+    // Fallback: estimate from DER-encoded key size
+    // RSA public key in SubjectPublicKeyInfo format:
+    // - 24 bytes overhead for ASN.1 structure (approximate)
+    // - Rest is modulus + exponent
+    // Modulus is typically key_bits/8 bytes + a few bytes for exponent
+    const estimatedModulusBytes = derKey.length - 38; // Typical ASN.1 overhead
+    const keyBits = Math.max(0, estimatedModulusBytes * 8);
     
     // Round to common key sizes
-    if (keyBits < 800) return 512;
-    if (keyBits < 1200) return 1024;
-    if (keyBits < 2200) return 2048;
-    if (keyBits < 4200) return 4096;
-    return keyBits;
+    if (keyBits <= 600) return 512;
+    if (keyBits <= 1100) return 1024;
+    if (keyBits <= 2100) return 2048;
+    if (keyBits <= 3100) return 3072;
+    if (keyBits <= 4200) return 4096;
+    return Math.round(keyBits / 256) * 256; // Round to nearest 256
   } catch {
     return undefined;
   }

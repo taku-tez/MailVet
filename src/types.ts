@@ -137,6 +137,42 @@ export interface CloudSource {
   getDomains(): Promise<string[]>;
 }
 
+/**
+ * Normalize domain for consistent DNS lookups
+ * - Lowercase
+ * - Remove protocol prefixes
+ * - Remove trailing dots
+ * - Remove leading/trailing whitespace
+ * - Remove path components
+ */
+export function normalizeDomain(domain: string): string {
+  let normalized = domain.toLowerCase().trim();
+  
+  // Remove protocol prefix if present
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) {
+    try {
+      normalized = new URL(normalized).hostname;
+    } catch {
+      // If URL parsing fails, try manual extraction
+      normalized = normalized.replace(/^https?:\/\//, '').split('/')[0];
+    }
+  }
+  
+  // Remove path components (e.g., "example.com/path" -> "example.com")
+  normalized = normalized.split('/')[0];
+  
+  // Remove port if present (e.g., "example.com:8080" -> "example.com")
+  normalized = normalized.split(':')[0];
+  
+  // Remove trailing dot (DNS absolute notation)
+  normalized = normalized.replace(/\.$/, '');
+  
+  // Remove any remaining whitespace
+  normalized = normalized.replace(/\s/g, '');
+  
+  return normalized;
+}
+
 // Common DKIM selectors used by popular email providers
 export const COMMON_DKIM_SELECTORS = [
   'default',

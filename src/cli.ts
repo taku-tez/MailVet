@@ -15,6 +15,7 @@ import { getRoute53Domains } from './sources/aws.js';
 import { getCloudDNSDomains, getCloudDNSDomainsOrg } from './sources/gcp.js';
 import { getAzureDNSDomains } from './sources/azure.js';
 import { getCloudflareDomains } from './sources/cloudflare.js';
+import { normalizeDomain } from './types.js';
 import type { ScanOptions } from './types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -182,8 +183,8 @@ program
       }
     }
 
-    // Deduplicate domains
-    domains = [...new Set(domains)];
+    // Normalize and deduplicate domains
+    domains = [...new Set(domains.map(d => normalizeDomain(d)).filter(d => d.length > 0))];
 
     if (domains.length === 0) {
       console.error('Error: No domains to scan');

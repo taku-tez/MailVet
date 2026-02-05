@@ -1,9 +1,15 @@
 /**
  * DMARC (Domain-based Message Authentication, Reporting & Conformance) checker
+ * RFC 7489 compliant implementation
  */
 
 import dns from 'node:dns/promises';
 import type { DMARCResult, Issue } from '../types.js';
+
+// Valid DMARC tags per RFC 7489
+const VALID_DMARC_TAGS = new Set([
+  'v', 'p', 'sp', 'rua', 'ruf', 'adkim', 'aspf', 'fo', 'rf', 'ri', 'pct'
+]);
 
 export async function checkDMARC(domain: string): Promise<DMARCResult> {
   const issues: Issue[] = [];
@@ -13,7 +19,7 @@ export async function checkDMARC(domain: string): Promise<DMARCResult> {
     const txtRecords = await dns.resolveTxt(dmarcDomain);
     const dmarcRecords = txtRecords
       .map(r => r.join(''))
-      .filter(r => r.toLowerCase().startsWith('v=dmarc1'));
+      .filter(r => r.toLowerCase().trim().startsWith('v=dmarc1'));
 
     if (dmarcRecords.length === 0) {
       return {
@@ -35,11 +41,34 @@ export async function checkDMARC(domain: string): Promise<DMARCResult> {
     }
 
     const record = dmarcRecords[0];
-    const policy = extractPolicy(record);
-    const subdomainPolicy = extractSubdomainPolicy(record);
-    const rua = extractReportingAddresses(record, 'rua');
-    const ruf = extractReportingAddresses(record, 'ruf');
-    const pct = extractPercentage(record);
+    
+    // Parse all tags robustly
+    const parsedTags = parseDMARCTags(record);
+    
+    // Check for invalid/unknown tags
+    const invalidTags = parsedTags.invalidTags;
+    if (invalidTags.length > 0) {
+      issues.push({
+        severity: 'low',
+        message: `Unknown DMARC tags found: ${invalidTags.join(', ')}`,
+        recommendation: 'Remove or correct invalid tags to ensure proper parsing'
+      });
+    }
+
+    // Check for malformed tags
+    if (parsedTags.malformedTags.length > 0) {
+      issues.push({
+        severity: 'medium',
+        message: `Malformed DMARC tags: ${parsedTags.malformedTags.join(', ')}`,
+        recommendation: 'Fix tag formatting (should be tag=value)'
+      });
+    }
+
+    const policy = parsedTags.tags.get('p') as 'none' | 'quarantine' | 'reject' | undefined;
+    const subdomainPolicy = parsedTags.tags.get('sp') as 'none' | 'quarantine' | 'reject' | undefined;
+    const rua = parseReportingAddresses(parsedTags.tags.get('rua'));
+    const ruf = parseReportingAddresses(parsedTags.tags.get('ruf'));
+    const pct = parsedTags.tags.get('pct') ? parseInt(parsedTags.tags.get('pct')!, 10) : undefined;
 
     // Check policy strength
     if (!policy) {
@@ -47,6 +76,12 @@ export async function checkDMARC(domain: string): Promise<DMARCResult> {
         severity: 'critical',
         message: 'DMARC record has no policy (p=) specified',
         recommendation: 'Add a policy: p=reject for maximum protection'
+      });
+    } else if (!['none', 'quarantine', 'reject'].includes(policy)) {
+      issues.push({
+        severity: 'critical',
+        message: `Invalid DMARC policy value: "${policy}"`,
+        recommendation: 'Use p=none, p=quarantine, or p=reject'
       });
     } else if (policy === 'none') {
       issues.push({
@@ -63,7 +98,13 @@ export async function checkDMARC(domain: string): Promise<DMARCResult> {
     }
 
     // Check subdomain policy
-    if (policy === 'reject' && subdomainPolicy && subdomainPolicy !== 'reject') {
+    if (subdomainPolicy && !['none', 'quarantine', 'reject'].includes(subdomainPolicy)) {
+      issues.push({
+        severity: 'medium',
+        message: `Invalid subdomain policy value: "${subdomainPolicy}"`,
+        recommendation: 'Use sp=none, sp=quarantine, or sp=reject'
+      });
+    } else if (policy === 'reject' && subdomainPolicy && subdomainPolicy !== 'reject') {
       issues.push({
         severity: 'medium',
         message: `Subdomain policy (sp=${subdomainPolicy}) is weaker than main policy`,
@@ -81,24 +122,61 @@ export async function checkDMARC(domain: string): Promise<DMARCResult> {
       });
     }
 
+    // Validate reporting addresses
+    for (const addr of [...rua, ...ruf]) {
+      if (!addr.startsWith('mailto:') && !addr.startsWith('https://')) {
+        issues.push({
+          severity: 'medium',
+          message: `Invalid reporting address format: "${addr}"`,
+          recommendation: 'Reporting addresses should use mailto: or https: scheme'
+        });
+      }
+    }
+
     // Check percentage
-    if (pct !== undefined && pct < 100) {
+    if (pct !== undefined) {
+      if (isNaN(pct) || pct < 0 || pct > 100) {
+        issues.push({
+          severity: 'medium',
+          message: `Invalid pct value: must be 0-100`,
+          recommendation: 'Set pct to a value between 0 and 100'
+        });
+      } else if (pct < 100) {
+        issues.push({
+          severity: 'low',
+          message: `DMARC policy applies to only ${pct}% of messages`,
+          recommendation: 'Consider increasing pct to 100 after testing'
+        });
+      }
+    }
+
+    // Check alignment modes
+    const adkim = parsedTags.tags.get('adkim');
+    const aspf = parsedTags.tags.get('aspf');
+    if (adkim && !['r', 's'].includes(adkim.toLowerCase())) {
       issues.push({
         severity: 'low',
-        message: `DMARC policy applies to only ${pct}% of messages`,
-        recommendation: 'Consider increasing pct to 100 after testing'
+        message: `Invalid adkim value: "${adkim}" (should be r or s)`,
+        recommendation: 'Use adkim=r (relaxed) or adkim=s (strict)'
+      });
+    }
+    if (aspf && !['r', 's'].includes(aspf.toLowerCase())) {
+      issues.push({
+        severity: 'low',
+        message: `Invalid aspf value: "${aspf}" (should be r or s)`,
+        recommendation: 'Use aspf=r (relaxed) or aspf=s (strict)'
       });
     }
 
     return {
       found: true,
       record,
-      policy,
-      subdomainPolicy,
+      policy: ['none', 'quarantine', 'reject'].includes(policy || '') ? policy as 'none' | 'quarantine' | 'reject' : undefined,
+      subdomainPolicy: ['none', 'quarantine', 'reject'].includes(subdomainPolicy || '') ? subdomainPolicy as 'none' | 'quarantine' | 'reject' : undefined,
       reportingEnabled,
       rua,
       ruf,
-      pct,
+      pct: (pct !== undefined && !isNaN(pct) && pct >= 0 && pct <= 100) ? pct : undefined,
       issues
     };
   } catch (err) {
@@ -117,46 +195,57 @@ export async function checkDMARC(domain: string): Promise<DMARCResult> {
   }
 }
 
-function extractPolicy(record: string): 'none' | 'quarantine' | 'reject' | undefined {
-  const match = record.match(/;\s*p=([^;\s]+)/i);
-  if (!match) return undefined;
-  
-  const policy = match[1].toLowerCase();
-  if (policy === 'none' || policy === 'quarantine' || policy === 'reject') {
-    return policy;
-  }
-  return undefined;
+interface ParsedDMARCTags {
+  tags: Map<string, string>;
+  invalidTags: string[];
+  malformedTags: string[];
 }
 
-function extractSubdomainPolicy(record: string): 'none' | 'quarantine' | 'reject' | undefined {
-  const match = record.match(/;\s*sp=([^;\s]+)/i);
-  if (!match) return undefined;
+/**
+ * Parse DMARC record tags robustly
+ * Handles whitespace variations, missing delimiters, etc.
+ */
+function parseDMARCTags(record: string): ParsedDMARCTags {
+  const tags = new Map<string, string>();
+  const invalidTags: string[] = [];
+  const malformedTags: string[] = [];
+
+  // Split by semicolon, handling various whitespace
+  const parts = record.split(/\s*;\s*/);
   
-  const policy = match[1].toLowerCase();
-  if (policy === 'none' || policy === 'quarantine' || policy === 'reject') {
-    return policy;
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+
+    // Match tag=value pattern (allowing whitespace around =)
+    const match = trimmed.match(/^([a-zA-Z0-9]+)\s*=\s*(.*)$/);
+    if (match) {
+      const [, tag, value] = match;
+      const tagLower = tag.toLowerCase();
+      
+      if (VALID_DMARC_TAGS.has(tagLower)) {
+        tags.set(tagLower, value.trim());
+      } else {
+        invalidTags.push(tag);
+      }
+    } else if (trimmed.includes('=')) {
+      // Has = but doesn't match pattern
+      malformedTags.push(trimmed);
+    }
+    // Skip parts without = (like standalone text)
   }
-  return undefined;
+
+  return { tags, invalidTags, malformedTags };
 }
 
-function extractReportingAddresses(record: string, tag: 'rua' | 'ruf'): string[] {
-  const regex = new RegExp(`${tag}=([^;]+)`, 'i');
-  const match = record.match(regex);
-  if (!match) return [];
-
-  return match[1]
+/**
+ * Parse comma-separated reporting addresses
+ */
+function parseReportingAddresses(value: string | undefined): string[] {
+  if (!value) return [];
+  
+  return value
     .split(',')
     .map(addr => addr.trim())
     .filter(addr => addr.length > 0);
-}
-
-function extractPercentage(record: string): number | undefined {
-  const match = record.match(/;\s*pct=(\d+)/i);
-  if (!match) return undefined;
-  
-  const pct = parseInt(match[1], 10);
-  if (pct >= 0 && pct <= 100) {
-    return pct;
-  }
-  return undefined;
 }

@@ -1,11 +1,13 @@
 /**
  * SPF (Sender Policy Framework) checker
+ * RFC 7208 compliant implementation
  */
 
 import dns from 'node:dns/promises';
 import type { SPFResult, Issue } from '../types.js';
 
 const MAX_DNS_LOOKUPS = 10;
+const MAX_RECURSION_DEPTH = 10; // Prevent infinite loops
 
 export async function checkSPF(domain: string): Promise<SPFResult> {
   const issues: Issue[] = [];
@@ -38,7 +40,18 @@ export async function checkSPF(domain: string): Promise<SPFResult> {
     const record = spfRecords[0];
     const mechanism = extractMechanism(record);
     const includes = extractIncludes(record);
-    const lookupCount = countDNSLookups(record);
+    
+    // RFC 7208 compliant recursive DNS lookup counting
+    const lookupResult = await countDNSLookupsRecursive(domain, record, new Set(), 0);
+    const lookupCount = lookupResult.count;
+    
+    if (lookupResult.loopDetected) {
+      issues.push({
+        severity: 'high',
+        message: 'SPF record contains circular reference',
+        recommendation: 'Remove circular include/redirect references'
+      });
+    }
 
     // Check mechanism strength
     if (mechanism === '+all') {
@@ -74,7 +87,7 @@ export async function checkSPF(domain: string): Promise<SPFResult> {
       issues.push({
         severity: 'high',
         message: `SPF record exceeds DNS lookup limit (${lookupCount}/${MAX_DNS_LOOKUPS})`,
-        recommendation: 'Reduce the number of include/redirect mechanisms'
+        recommendation: 'Reduce the number of include/redirect mechanisms or flatten the SPF record'
       });
     } else if (lookupCount > 7) {
       issues.push({
@@ -136,23 +149,113 @@ function extractIncludes(record: string): string[] {
   return includes;
 }
 
-function countDNSLookups(record: string): number {
-  // Mechanisms that require DNS lookups: include, a, mx, ptr, exists, redirect
-  const lookupMechanisms = ['include:', 'a:', 'a ', 'mx:', 'mx ', 'ptr:', 'ptr ', 'exists:', 'redirect='];
-  let count = 0;
+interface LookupResult {
+  count: number;
+  loopDetected: boolean;
+}
 
+/**
+ * RFC 7208 compliant recursive DNS lookup counting
+ * Counts include, a, mx, ptr, exists, redirect mechanisms recursively
+ */
+async function countDNSLookupsRecursive(
+  domain: string,
+  record: string,
+  visited: Set<string>,
+  depth: number
+): Promise<LookupResult> {
+  if (depth > MAX_RECURSION_DEPTH) {
+    return { count: 0, loopDetected: true };
+  }
+
+  // Check for circular reference
+  const recordKey = `${domain}:${record}`;
+  if (visited.has(domain.toLowerCase())) {
+    return { count: 0, loopDetected: true };
+  }
+  visited.add(domain.toLowerCase());
+
+  let count = 0;
+  let loopDetected = false;
   const lower = record.toLowerCase();
-  for (const mech of lookupMechanisms) {
-    const regex = new RegExp(mech.trim().replace(':', ':'), 'gi');
-    const matches = lower.match(regex);
-    if (matches) {
-      count += matches.length;
+
+  // Count direct mechanisms that require DNS lookups (RFC 7208 Section 4.6.4)
+  // Each of these counts as 1 DNS lookup:
+  // - include: 1 lookup + recursive lookups from included record
+  // - a: 1 lookup
+  // - mx: 1 lookup (+ implicit A lookups, but those don't count against limit)
+  // - ptr: 1 lookup (deprecated)
+  // - exists: 1 lookup
+  // - redirect: 0 lookups itself, but the target record's lookups count
+
+  // Count 'a' mechanisms (a, a:domain, a:domain/prefix)
+  const aMatches = lower.match(/\ba(:|\/|\s|$)/g);
+  if (aMatches) count += aMatches.length;
+
+  // Count 'mx' mechanisms
+  const mxMatches = lower.match(/\bmx(:|\/|\s|$)/g);
+  if (mxMatches) count += mxMatches.length;
+
+  // Count 'ptr' mechanisms
+  const ptrMatches = lower.match(/\bptr(:|\/|\s|$)/g);
+  if (ptrMatches) count += ptrMatches.length;
+
+  // Count 'exists' mechanisms
+  const existsMatches = lower.match(/\bexists:/g);
+  if (existsMatches) count += existsMatches.length;
+
+  // Process include: mechanisms recursively
+  const includeRegex = /include:([^\s]+)/gi;
+  let includeMatch;
+  while ((includeMatch = includeRegex.exec(record)) !== null) {
+    count++; // The include itself is 1 lookup
+    
+    const includeDomain = includeMatch[1];
+    try {
+      const includeTxt = await dns.resolveTxt(includeDomain);
+      const includeSPF = includeTxt
+        .map(r => r.join(''))
+        .find(r => r.toLowerCase().startsWith('v=spf1'));
+      
+      if (includeSPF) {
+        const recursiveResult = await countDNSLookupsRecursive(
+          includeDomain,
+          includeSPF,
+          visited,
+          depth + 1
+        );
+        count += recursiveResult.count;
+        if (recursiveResult.loopDetected) loopDetected = true;
+      }
+    } catch {
+      // DNS lookup failed, but we still counted the lookup attempt
     }
   }
 
-  // Also count implicit a and mx (without domain specified)
-  if (/\sa\s|^a\s|\sa$/i.test(record)) count++;
-  if (/\smx\s|^mx\s|\smx$/i.test(record)) count++;
+  // Process redirect= modifier (replaces the current record)
+  const redirectMatch = lower.match(/redirect=([^\s]+)/);
+  if (redirectMatch) {
+    const redirectDomain = redirectMatch[1];
+    try {
+      const redirectTxt = await dns.resolveTxt(redirectDomain);
+      const redirectSPF = redirectTxt
+        .map(r => r.join(''))
+        .find(r => r.toLowerCase().startsWith('v=spf1'));
+      
+      if (redirectSPF) {
+        const recursiveResult = await countDNSLookupsRecursive(
+          redirectDomain,
+          redirectSPF,
+          visited,
+          depth + 1
+        );
+        count += recursiveResult.count;
+        if (recursiveResult.loopDetected) loopDetected = true;
+      }
+    } catch {
+      // DNS lookup failed
+    }
+  }
 
-  return count;
+  return { count, loopDetected };
 }
