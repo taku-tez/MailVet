@@ -51,6 +51,31 @@ export async function checkSPF(domain: string): Promise<SPFResult> {
         recommendation: 'Remove circular include/redirect references'
       });
     }
+    if (lookupResult.depthLimitReached) {
+      issues.push({
+        severity: 'high',
+        message: 'SPF record analysis exceeded recursion depth limit',
+        recommendation: 'Simplify include/redirect chains to avoid excessive nesting'
+      });
+    }
+
+    const failedIncludes = Array.from(new Set(lookupResult.failedIncludes));
+    for (const failedInclude of failedIncludes) {
+      issues.push({
+        severity: 'high',
+        message: `SPF include target not found: ${failedInclude}`,
+        recommendation: 'Ensure the include domain publishes a valid SPF record'
+      });
+    }
+
+    const failedRedirects = Array.from(new Set(lookupResult.failedRedirects));
+    for (const failedRedirect of failedRedirects) {
+      issues.push({
+        severity: 'high',
+        message: `SPF redirect target not found: ${failedRedirect}`,
+        recommendation: 'Ensure the redirect domain publishes a valid SPF record'
+      });
+    }
 
     // Check mechanism strength
     if (mechanism === '+all') {
@@ -150,6 +175,9 @@ function extractIncludes(record: string): string[] {
 interface LookupResult {
   count: number;
   loopDetected: boolean;
+  depthLimitReached: boolean;
+  failedIncludes: string[];
+  failedRedirects: string[];
 }
 
 /**
@@ -163,7 +191,13 @@ async function countDNSLookupsRecursive(
   depth: number
 ): Promise<LookupResult> {
   if (depth > SPF_MAX_RECURSION_DEPTH) {
-    return { count: 0, loopDetected: true };
+    return {
+      count: 0,
+      loopDetected: false,
+      depthLimitReached: true,
+      failedIncludes: [],
+      failedRedirects: []
+    };
   }
 
   // Check for circular reference using domain + record hash
@@ -174,12 +208,21 @@ async function countDNSLookupsRecursive(
   const recordKey = `${normalizedDomain}:${recordHash}`;
   
   if (visited.has(recordKey)) {
-    return { count: 0, loopDetected: true };
+    return {
+      count: 0,
+      loopDetected: true,
+      depthLimitReached: false,
+      failedIncludes: [],
+      failedRedirects: []
+    };
   }
   visited.add(recordKey);
 
   let count = 0;
   let loopDetected = false;
+  let depthLimitReached = false;
+  const failedIncludes: string[] = [];
+  const failedRedirects: string[] = [];
   const lower = record.toLowerCase();
 
   // Count direct mechanisms that require DNS lookups (RFC 7208 Section 4.6.4)
@@ -229,9 +272,15 @@ async function countDNSLookupsRecursive(
         );
         count += recursiveResult.count;
         if (recursiveResult.loopDetected) loopDetected = true;
+        if (recursiveResult.depthLimitReached) depthLimitReached = true;
+        failedIncludes.push(...recursiveResult.failedIncludes);
+        failedRedirects.push(...recursiveResult.failedRedirects);
+      } else {
+        failedIncludes.push(includeDomain);
       }
     } catch {
       // DNS lookup failed, but we still counted the lookup attempt
+      failedIncludes.push(includeDomain);
     }
   }
 
@@ -257,11 +306,23 @@ async function countDNSLookupsRecursive(
         );
         count += recursiveResult.count;
         if (recursiveResult.loopDetected) loopDetected = true;
+        if (recursiveResult.depthLimitReached) depthLimitReached = true;
+        failedIncludes.push(...recursiveResult.failedIncludes);
+        failedRedirects.push(...recursiveResult.failedRedirects);
+      } else {
+        failedRedirects.push(redirectDomain);
       }
     } catch {
       // DNS lookup failed, but we still counted the lookup attempt
+      failedRedirects.push(redirectDomain);
     }
   }
 
-  return { count, loopDetected };
+  return {
+    count,
+    loopDetected,
+    depthLimitReached,
+    failedIncludes,
+    failedRedirects
+  };
 }
