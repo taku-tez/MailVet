@@ -41,20 +41,45 @@ function validateDomainOrExit(domain: string): string {
   return normalized;
 }
 
+const ALL_CHECKS = ['spf', 'dkim', 'dmarc', 'mx', 'bimi', 'mta-sts', 'tls-rpt', 'arc', 'dnssec'] as const;
+const normalizeCheckName = (name: string): string => name.replace(/-/g, '').toLowerCase();
+const keyMap: Record<string, keyof NonNullable<ScanOptions['checks']>> = {
+  'spf': 'spf',
+  'dkim': 'dkim',
+  'dmarc': 'dmarc',
+  'mx': 'mx',
+  'bimi': 'bimi',
+  'mtasts': 'mtaSts',
+  'tlsrpt': 'tlsRpt',
+  'arc': 'arc',
+  'dnssec': 'dnssec',
+};
+const normalizedChecks = new Set(ALL_CHECKS.map(check => normalizeCheckName(check)));
+
+function parseCheckList(value?: string): string[] {
+  return value ? value.split(',').map(s => s.trim()).filter(Boolean) : [];
+}
+
+function validateCheckNamesOrExit(names: string[], label: string): void {
+  const unknown = names.filter(name => !normalizedChecks.has(normalizeCheckName(name)));
+  if (unknown.length > 0) {
+    console.error(`Error: Unknown ${label} check(s): ${unknown.join(', ')}`);
+    console.error(`Available checks: ${ALL_CHECKS.join(', ')}`);
+    process.exit(1);
+  }
+}
+
 /**
  * Parse --skip/--only CLI options into CheckOptions
  */
 function parseCheckOptions(skip?: string, only?: string): ScanOptions['checks'] {
-  const ALL_CHECKS = ['spf', 'dkim', 'dmarc', 'mx', 'bimi', 'mta-sts', 'tls-rpt', 'arc', 'dnssec'] as const;
-  const normalize = (name: string): string => name.replace(/-/g, '').toLowerCase();
-  const keyMap: Record<string, keyof NonNullable<ScanOptions['checks']>> = {
-    'spf': 'spf', 'dkim': 'dkim', 'dmarc': 'dmarc', 'mx': 'mx',
-    'bimi': 'bimi', 'mtasts': 'mtaSts', 'tlsrpt': 'tlsRpt', 'arc': 'arc', 'dnssec': 'dnssec'
-  };
+  const normalize = (name: string): string => normalizeCheckName(name);
 
   if (only) {
     // Only run specified checks
-    const enabledSet = new Set(only.split(',').map(s => normalize(s.trim())));
+    const onlyList = parseCheckList(only);
+    validateCheckNamesOrExit(onlyList, 'only');
+    const enabledSet = new Set(onlyList.map(normalize));
     const checks: Record<string, boolean> = {};
     for (const c of ALL_CHECKS) {
       const key = keyMap[normalize(c)];
@@ -65,7 +90,9 @@ function parseCheckOptions(skip?: string, only?: string): ScanOptions['checks'] 
 
   if (skip) {
     // Skip specified checks
-    const skipSet = new Set(skip.split(',').map(s => normalize(s.trim())));
+    const skipList = parseCheckList(skip);
+    validateCheckNamesOrExit(skipList, 'skip');
+    const skipSet = new Set(skipList.map(normalize));
     const checks: Record<string, boolean> = {};
     for (const c of ALL_CHECKS) {
       const key = keyMap[normalize(c)];
@@ -152,6 +179,8 @@ program
   .option('-t, --timeout <ms>', 'Timeout per check in milliseconds', '10000')
   .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .option('--verify-tlsrpt-endpoints', 'Verify TLS-RPT endpoint reachability')
+  .option('--skip <checks>', 'Skip specific checks (comma-separated: spf,dkim,dmarc,mx,bimi,mta-sts,tls-rpt,arc,dnssec)')
+  .option('--only <checks>', 'Run only specific checks (comma-separated: spf,dkim,dmarc,mx,bimi,mta-sts,tls-rpt,arc,dnssec)')
   .action(async (options) => {
     let domains: string[] = [];
     const sources: string[] = [];
@@ -295,6 +324,7 @@ program
       dkimSelectors: options.selectors?.split(',').map((s: string) => s.trim()).filter(Boolean),
       timeout: parseIntOrDefault(options.timeout, DEFAULT_CHECK_TIMEOUT_MS),
       verifyTlsRptEndpoints: options.verifyTlsrptEndpoints,
+      checks: parseCheckOptions(options.skip, options.only),
     };
 
     const results = await analyzeMultiple(domains, scanOptions);
@@ -434,6 +464,8 @@ program
   .option('-t, --timeout <ms>', 'Timeout per check in milliseconds', '10000')
   .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .option('--verify-tlsrpt-endpoints', 'Verify TLS-RPT endpoint reachability')
+  .option('--skip <checks>', 'Skip specific checks (comma-separated: spf,dkim,dmarc,mx,bimi,mta-sts,tls-rpt,arc,dnssec)')
+  .option('--only <checks>', 'Run only specific checks (comma-separated: spf,dkim,dmarc,mx,bimi,mta-sts,tls-rpt,arc,dnssec)')
   .action(async (domain: string | undefined, options) => {
     if (!domain) {
       program.help();
@@ -448,6 +480,7 @@ program
       verbose: options.verbose,
       timeout: parseIntOrDefault(options.timeout, DEFAULT_CHECK_TIMEOUT_MS),
       verifyTlsRptEndpoints: options.verifyTlsrptEndpoints,
+      checks: parseCheckOptions(options.skip, options.only),
     };
 
     const result = await analyzeDomain(normalizedDomain, scanOptions);
