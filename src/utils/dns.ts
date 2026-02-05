@@ -5,6 +5,32 @@
 
 import dns from 'node:dns/promises';
 
+// Global resolver instance (can be configured)
+let customResolver: string | undefined;
+let resolverInstance: dns.Resolver | null = null;
+
+/**
+ * Set a custom DNS resolver for all DNS queries
+ */
+export function setDnsResolver(resolver: string | undefined): void {
+  customResolver = resolver;
+  resolverInstance = null; // Reset cached resolver
+}
+
+/**
+ * Get a configured resolver instance (lazy initialization)
+ */
+function getResolver(): dns.Resolver | typeof dns {
+  if (!customResolver) {
+    return dns; // Use default dns.promises
+  }
+  if (!resolverInstance) {
+    resolverInstance = new dns.Resolver();
+    resolverInstance.setServers([customResolver]);
+  }
+  return resolverInstance;
+}
+
 /**
  * Check if error is a DNS "not found" error
  */
@@ -17,7 +43,8 @@ export function isDNSNotFoundError(err: unknown): boolean {
  * Resolve TXT records with common error handling
  */
 export async function resolveTxtRecords(domain: string): Promise<string[]> {
-  const txtRecords = await dns.resolveTxt(domain);
+  const resolver = getResolver();
+  const txtRecords = await resolver.resolveTxt(domain);
   return txtRecords.map(r => r.join(''));
 }
 
@@ -67,7 +94,9 @@ export interface MxRecord {
  */
 export async function safeResolveMx(domain: string): Promise<MxRecord[]> {
   try {
-    return await dns.resolveMx(domain);
+    const resolver = getResolver();
+    const result = await resolver.resolveMx(domain);
+    return result;
   } catch (err) {
     if (isDNSNotFoundError(err)) {
       return [];

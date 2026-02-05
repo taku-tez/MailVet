@@ -1,6 +1,6 @@
 {
   "name": "dnsvet",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "DNS and email security scanner - SPF/DKIM/DMARC/DNSSEC/MTA-STS validation",
   "type": "module",
   "main": "dist/index.js",

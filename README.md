@@ -152,10 +152,10 @@ Recommendations:
 | D | 25-49 | SPF only |
 | F | 0-24 | Major issues or missing records |
 
-### Bonus Points (up to +15)
-- DNSSEC enabled: +5
-- BIMI with VMC: +5
-- MTA-STS enforce: +4
+### Bonus Points (up to +20, capped at 100 total)
+- DNSSEC enabled: +5 (chain valid), +3 (enabled only)
+- BIMI with VMC: +5 (+3 base, +2 with certificate)
+- MTA-STS enforce: +4 (+2 for testing mode)
 - TLS-RPT: +3
 - ARC ready: +3
 

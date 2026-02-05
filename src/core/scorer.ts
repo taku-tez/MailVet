@@ -50,12 +50,12 @@ const isSkipped = (result?: { skipped?: boolean }): boolean => Boolean(result?.s
  * - DKIM: max 25 points
  * - DMARC: max 40 points
  * 
- * Bonus points (up to +15, capped at 100 total):
+ * Bonus points (up to +20, capped at 100 total):
  * - BIMI: +3 (with VMC: +5)
  * - MTA-STS enforce: +4 (testing: +2)
  * - TLS-RPT: +3
  * - ARC ready: +3
- * - DNSSEC enabled: +5 (with chain valid), +3 (enabled only)
+ * - DNSSEC: +5 (chain valid), +3 (enabled only)
  * 
  * Grading criteria:
  * - A (90-100): SPF (-all) + DKIM + DMARC (reject)
@@ -137,7 +137,7 @@ export function calculateGrade(
     }
   }
 
-  // Bonus points for advanced features (max +15)
+  // Bonus points for advanced features (max +20)
   let bonus = 0;
 
   // BIMI bonus (+3 base, +5 with VMC)
@@ -356,7 +356,7 @@ export function generateRecommendations(
       priority: 11,
       text: '💡 [推奨] MTA-STSを設定してください - 受信メールのTLS暗号化を強制し、中間者攻撃を防止できます'
     });
-  } else if (!isSkipped(mtaSts) && mtaSts.policy?.mode === 'testing') {
+  } else if (!isSkipped(mtaSts) && mtaSts?.policy?.mode === 'testing') {
     recommendations.push({
       priority: 14,
       text: '💡 [推奨] MTA-STSをtestingモードからenforceモードに移行してください - テストで問題なければ本番適用しましょう'
@@ -377,7 +377,7 @@ export function generateRecommendations(
         priority: 15,
         text: '✨ [オプション] BIMIを設定すると、対応メールクライアントで御社のロゴが表示されます - ブランド認知度向上に効果的です'
       });
-    } else if (!isSkipped(bimi) && bimi.found && !bimi.certificateUrl) {
+    } else if (!isSkipped(bimi) && bimi?.found && !bimi?.certificateUrl) {
       recommendations.push({
         priority: 16,
         text: '✨ [オプション] VMC証明書を追加すると、より多くのメールクライアントでロゴが表示されます（Gmail等で必須）'
@@ -391,12 +391,12 @@ export function generateRecommendations(
       priority: 13,
       text: '💡 [推奨] DNSSECを有効にしてください - DNSスプーフィングやキャッシュポイズニングからドメインを保護できます'
     });
-  } else if (!isSkipped(dnssec) && dnssec.enabled && !dnssec.chainValid) {
+  } else if (!isSkipped(dnssec) && dnssec?.enabled && !dnssec?.chainValid) {
     recommendations.push({
       priority: 6,
       text: '⚠️ [重要] DNSSECのチェーンオブトラストが不完全です - DS/DNSKEYレコードの設定を確認してください'
     });
-  } else if (!isSkipped(dnssec)) {
+  } else if (!isSkipped(dnssec) && dnssec) {
     // Check for weak algorithms
     const weakAlgos = dnssec.ds?.records.filter(r => r.strength === 'weak' || r.strength === 'deprecated');
     if (weakAlgos && weakAlgos.length > 0) {
