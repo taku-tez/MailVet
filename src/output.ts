@@ -61,7 +61,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
       sectionLines.push(...formatIssues(result.spf.issues));
     }
     return sectionLines;
-  }));
+  }, result.spf.issues));
 
   // DKIM
   lines.push(formatSection('DKIM', result.dkim.found, () => {
@@ -77,7 +77,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
       sectionLines.push(...formatIssues(result.dkim.issues));
     }
     return sectionLines;
-  }));
+  }, result.dkim.issues));
 
   // DMARC
   lines.push(formatSection('DMARC', result.dmarc.found, () => {
@@ -101,7 +101,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
       sectionLines.push(...formatIssues(result.dmarc.issues));
     }
     return sectionLines;
-  }));
+  }, result.dmarc.issues));
 
   // MX
   lines.push(formatSection('MX', result.mx.found, () => {
@@ -121,7 +121,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
       sectionLines.push(...formatIssues(result.mx.issues.filter(i => !i.message.includes('provider detected'))));
     }
     return sectionLines;
-  }));
+  }, result.mx.issues));
 
   // BIMI (optional)
   if (result.bimi) {
@@ -145,7 +145,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
         sectionLines.push(...formatIssues(result.bimi?.issues || []));
       }
       return sectionLines;
-    }));
+    }, result.bimi?.issues));
   }
 
   // MTA-STS (optional)
@@ -168,7 +168,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
         sectionLines.push(...formatIssues(result.mtaSts?.issues || []));
       }
       return sectionLines;
-    }));
+    }, result.mtaSts?.issues));
   }
 
   // TLS-RPT (optional)
@@ -187,7 +187,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
         sectionLines.push(...formatIssues(result.tlsRpt?.issues || []));
       }
       return sectionLines;
-    }));
+    }, result.tlsRpt?.issues));
   }
 
   // ARC Readiness (optional)
@@ -204,7 +204,7 @@ export function formatResult(result: DomainResult, verbose = false): string {
         sectionLines.push(...formatIssues(result.arc?.issues || []));
       }
       return sectionLines;
-    }));
+    }, result.arc?.issues));
   }
 
   // All Issues (verbose mode)
@@ -337,7 +337,8 @@ function groupBy<T, K>(items: T[], keyFn: (item: T) => K): Map<K, T[]> {
 function formatSection(
   name: string, 
   found: boolean, 
-  detailsFn: () => string[]
+  detailsFn: () => string[],
+  notFoundIssues?: Issue[]
 ): string {
   const lines: string[] = [];
   const icon = found ? CHECK : FAIL;
@@ -347,6 +348,14 @@ function formatSection(
   
   if (found) {
     lines.push(...detailsFn());
+  } else if (notFoundIssues && notFoundIssues.length > 0) {
+    // Show the most important issue when not found (non-verbose mode)
+    const topIssue = notFoundIssues.find(i => i.severity === 'critical') ||
+                     notFoundIssues.find(i => i.severity === 'high') ||
+                     notFoundIssues[0];
+    if (topIssue && topIssue.recommendation) {
+      lines.push(`   ${DIM}→ ${topIssue.recommendation}${RESET}`);
+    }
   }
   
   return lines.join('\n');

@@ -95,8 +95,8 @@ export async function checkSPF(domain: string): Promise<SPFResult> {
       });
     }
 
-    // Check for deprecated ptr mechanism
-    if (record.toLowerCase().includes(' ptr')) {
+    // Check for deprecated ptr mechanism (match ptr at word boundary)
+    if (/\bptr(:|\/|\s|$)/i.test(record)) {
       issues.push({
         severity: 'medium',
         message: 'SPF record uses deprecated ptr mechanism',

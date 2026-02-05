@@ -8,11 +8,11 @@
  * 4. Workload Identity (GKE)
  */
 
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { CloudSource } from '../types.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface GCPOptions {
   project?: string;
@@ -35,9 +35,9 @@ export class GCPSource implements CloudSource {
 }
 
 /**
- * Build CLI arguments and environment for GCP commands
+ * Build CLI arguments array and environment for GCP commands (safe from injection)
  */
-function buildGCPConfig(options: GCPOptions): { args: string; env: Record<string, string> } {
+function buildGCPConfig(options: GCPOptions): { args: string[]; env: Record<string, string> } {
   const args: string[] = [];
   const env: Record<string, string> = {};
 
@@ -54,7 +54,7 @@ function buildGCPConfig(options: GCPOptions): { args: string; env: Record<string
     env.GOOGLE_APPLICATION_CREDENTIALS = options.keyFile;
   }
 
-  return { args: args.join(' '), env };
+  return { args, env };
 }
 
 /**
@@ -65,10 +65,11 @@ export async function getCloudDNSDomains(options: GCPOptions = {}): Promise<stri
 
   try {
     // List all managed zones
-    const { stdout } = await execAsync(
-      `gcloud dns managed-zones list ${args} --format=json`,
-      { env: { ...process.env, ...env } }
-    );
+    const { stdout } = await execFileAsync('gcloud', [
+      'dns', 'managed-zones', 'list',
+      ...args,
+      '--format=json'
+    ], { env: { ...process.env, ...env } });
 
     const zones: Array<{ 
       name: string; 
@@ -83,14 +84,15 @@ export async function getCloudDNSDomains(options: GCPOptions = {}): Promise<stri
 
     return domains;
   } catch (err) {
-    const error = err as Error & { stderr?: string };
-    if (error.stderr?.includes('not logged in') || error.stderr?.includes('credentials')) {
+    const error = err as Error & { stderr?: string; message?: string };
+    const errorMsg = error.stderr || error.message || '';
+    if (errorMsg.includes('not logged in') || errorMsg.includes('credentials')) {
       throw new Error('GCP credentials not configured. Run "gcloud auth login"');
     }
-    if (error.stderr?.includes('not found') || error.stderr?.includes('command not found')) {
+    if (errorMsg.includes('ENOENT') || errorMsg.includes('command not found')) {
       throw new Error('gcloud CLI not found. Install from: https://cloud.google.com/sdk/install');
     }
-    if (error.stderr?.includes('project')) {
+    if (errorMsg.includes('project')) {
       throw new Error('GCP project not set. Use --gcp-project or run "gcloud config set project PROJECT_ID"');
     }
     throw new Error(`Failed to list Cloud DNS zones: ${error.message}`);
@@ -104,10 +106,11 @@ export async function listGCPProjects(options: GCPOptions = {}): Promise<string[
   const { args, env } = buildGCPConfig(options);
 
   try {
-    const { stdout } = await execAsync(
-      `gcloud projects list ${args} --format="value(projectId)"`,
-      { env: { ...process.env, ...env } }
-    );
+    const { stdout } = await execFileAsync('gcloud', [
+      'projects', 'list',
+      ...args,
+      '--format=value(projectId)'
+    ], { env: { ...process.env, ...env } });
 
     return stdout.trim().split('\n').filter(Boolean);
   } catch {
@@ -125,10 +128,12 @@ export async function listOrgProjects(
   const { args, env } = buildGCPConfig(options);
 
   try {
-    const { stdout } = await execAsync(
-      `gcloud projects list --filter="parent.id=${orgId}" ${args} --format="value(projectId)"`,
-      { env: { ...process.env, ...env } }
-    );
+    const { stdout } = await execFileAsync('gcloud', [
+      'projects', 'list',
+      `--filter=parent.id=${orgId}`,
+      ...args,
+      '--format=value(projectId)'
+    ], { env: { ...process.env, ...env } });
 
     return stdout.trim().split('\n').filter(Boolean);
   } catch (err) {
@@ -240,30 +245,63 @@ async function getCloudDNSDomainsWithTimeout(
   const { args, env } = buildGCPConfig(options);
 
   try {
-    const { stdout } = await execAsync(
-      `gcloud dns managed-zones list ${args} --format=json`,
-      { env: { ...process.env, ...env }, timeout: timeoutMs }
-    );
+    const { spawn } = await import('node:child_process');
+    
+    return new Promise((resolve, reject) => {
+      const proc = spawn('gcloud', [
+        'dns', 'managed-zones', 'list',
+        ...args,
+        '--format=json'
+      ], { env: { ...process.env, ...env } });
+      
+      let stdout = '';
+      let stderr = '';
+      
+      const timer = setTimeout(() => {
+        proc.kill();
+        resolve([]); // Timeout - return empty
+      }, timeoutMs);
+      
+      proc.stdout.on('data', (data) => { stdout += data; });
+      proc.stderr.on('data', (data) => { stderr += data; });
+      
+      proc.on('close', (code) => {
+        clearTimeout(timer);
+        
+        if (code !== 0) {
+          // Silently skip API not enabled, permission denied
+          if (stderr.includes('not enabled') ||
+              stderr.includes('PERMISSION_DENIED') ||
+              stderr.includes('does not have')) {
+            resolve([]);
+            return;
+          }
+          reject(new Error(stderr || `Process exited with code ${code}`));
+          return;
+        }
+        
+        try {
+          const zones: Array<{ 
+            name: string; 
+            dnsName: string; 
+            visibility?: string;
+          }> = JSON.parse(stdout) || [];
 
-    const zones: Array<{ 
-      name: string; 
-      dnsName: string; 
-      visibility?: string;
-    }> = JSON.parse(stdout) || [];
-
-    return zones
-      .filter(zone => zone.visibility !== 'private')
-      .map(zone => zone.dnsName.replace(/\.$/, ''));
+          resolve(zones
+            .filter(zone => zone.visibility !== 'private')
+            .map(zone => zone.dnsName.replace(/\.$/, '')));
+        } catch (err) {
+          reject(err);
+        }
+      });
+      
+      proc.on('error', (err) => {
+        clearTimeout(timer);
+        resolve([]); // Error - return empty
+      });
+    });
   } catch (err) {
-    const error = err as Error & { stderr?: string; killed?: boolean };
-    // Silently skip API not enabled, permission denied, or timeout
-    if (error.stderr?.includes('not enabled') ||
-        error.stderr?.includes('PERMISSION_DENIED') ||
-        error.stderr?.includes('does not have') ||
-        error.killed) {
-      return [];
-    }
-    throw err;
+    return [];
   }
 }
 

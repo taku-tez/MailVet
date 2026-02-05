@@ -5,7 +5,7 @@
 import crypto from 'node:crypto';
 import type { DKIMResult, DKIMSelector, Issue } from '../types.js';
 import { dns, safeResolveTxt } from '../utils/dns.js';
-import { extractTag } from '../utils/parser.js';
+import { extractTag, parseRecordTags } from '../utils/parser.js';
 import { COMMON_DKIM_SELECTORS, DKIM_WEAK_KEY_BITS, DKIM_STRONG_KEY_BITS, DNS_SUBDOMAIN } from '../constants.js';
 
 export async function checkDKIM(
@@ -103,27 +103,64 @@ async function checkDKIMSelector(
   
   try {
     const txtRecords = await dns.resolveTxt(dkimDomain);
-    const dkimRecords = txtRecords
-      .map(r => r.join(''))
-      .filter(r => r.toLowerCase().includes('v=dkim1') || r.includes('k=') || r.includes('p='));
+    const joinedRecords = txtRecords.map(r => r.join(''));
+    
+    // Find valid DKIM record using strict validation
+    const dkimRecord = findValidDKIMRecord(joinedRecords);
 
-    if (dkimRecords.length === 0) {
+    if (!dkimRecord) {
       return { found: false };
     }
 
-    const record = dkimRecords[0];
-    const keyType = extractKeyType(record);
-    const keyLength = extractKeyLength(record, keyType);
+    const keyType = extractKeyType(dkimRecord);
+    const keyLength = extractKeyLength(dkimRecord, keyType);
 
     return {
       found: true,
       keyType,
       keyLength,
-      record
+      record: dkimRecord
     };
   } catch {
     return { found: false };
   }
+}
+
+/**
+ * Find a valid DKIM record from TXT records using strict validation
+ * Prioritizes v=DKIM1 records, then validates tag structure
+ */
+function findValidDKIMRecord(records: string[]): string | undefined {
+  // First, look for records with explicit v=DKIM1
+  const explicitDKIM = records.find(r => 
+    r.toLowerCase().trim().startsWith('v=dkim1') ||
+    /;\s*v\s*=\s*dkim1/i.test(r)
+  );
+  
+  if (explicitDKIM) {
+    return explicitDKIM;
+  }
+  
+  // Fall back: check for records that have proper DKIM tag structure (p= is required)
+  for (const record of records) {
+    const tags = parseRecordTags(record);
+    
+    // Must have p= tag (public key) - this is required for DKIM
+    if (!tags.has('p')) {
+      continue;
+    }
+    
+    // If k= is present, it should be a valid key type
+    const keyType = tags.get('k');
+    if (keyType && !['rsa', 'ed25519'].includes(keyType.toLowerCase())) {
+      continue;
+    }
+    
+    // Looks like a valid DKIM record
+    return record;
+  }
+  
+  return undefined;
 }
 
 function extractKeyType(record: string): string | undefined {

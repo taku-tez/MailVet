@@ -2,6 +2,27 @@
  * Domain manipulation utilities
  */
 
+// Use Node.js built-in punycode (deprecated but still available)
+import punycode from 'node:punycode';
+
+/**
+ * Convert IDN (Internationalized Domain Name) to ASCII (Punycode)
+ */
+export function toASCII(domain: string): string {
+  try {
+    // Handle each label separately
+    return domain.split('.').map(label => {
+      // Check if label contains non-ASCII characters
+      if (/[^\x00-\x7F]/.test(label)) {
+        return 'xn--' + punycode.encode(label);
+      }
+      return label;
+    }).join('.');
+  } catch {
+    return domain; // Return as-is if conversion fails
+  }
+}
+
 /**
  * Normalize domain for consistent DNS lookups
  * - Lowercase
@@ -35,6 +56,11 @@ export function normalizeDomain(domain: string): string {
   
   // Remove any remaining whitespace
   normalized = normalized.replace(/\s/g, '');
+  
+  // Convert IDN to ASCII (Punycode) for DNS compatibility
+  if (/[^\x00-\x7F]/.test(normalized)) {
+    normalized = toASCII(normalized);
+  }
   
   return normalized;
 }

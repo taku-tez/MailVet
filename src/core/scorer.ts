@@ -11,8 +11,19 @@ import type {
   MTASTSResult,
   TLSRPTResult,
   ARCReadinessResult,
-  Grade 
+  Grade,
+  Issue,
+  Severity
 } from '../types.js';
+
+// Penalty points for issues by severity
+const SEVERITY_PENALTIES: Record<Severity, number> = {
+  critical: 15,
+  high: 8,
+  medium: 3,
+  low: 1,
+  info: 0,
+};
 
 interface GradeResult {
   grade: Grade;
@@ -149,6 +160,10 @@ export function calculateGrade(
   // Apply bonus (capped so total doesn't exceed 100)
   score = Math.min(100, score + Math.min(bonus, 15));
 
+  // Apply penalties for critical/high severity issues (misconfigurations)
+  const penalty = calculateIssuePenalty(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc);
+  score = Math.max(0, score - penalty);
+
   // Clamp score to 0-100
   score = Math.max(0, Math.min(100, score));
 
@@ -167,6 +182,58 @@ export function calculateGrade(
   }
 
   return { grade, score };
+}
+
+/**
+ * Calculate penalty based on issue severity across all checks
+ * Focuses on critical/high issues that indicate misconfigurations
+ */
+function calculateIssuePenalty(
+  spf: SPFResult,
+  dkim: DKIMResult,
+  dmarc: DMARCResult,
+  mx: MXResult,
+  bimi?: BIMIResult,
+  mtaSts?: MTASTSResult,
+  tlsRpt?: TLSRPTResult,
+  arc?: ARCReadinessResult
+): number {
+  // Collect all issues
+  const allIssues: Issue[] = [
+    ...spf.issues,
+    ...dkim.issues,
+    ...dmarc.issues,
+    ...mx.issues,
+    ...(bimi?.issues || []),
+    ...(mtaSts?.issues || []),
+    ...(tlsRpt?.issues || []),
+    ...(arc?.issues || []),
+  ];
+
+  // Calculate total penalty (cap per severity to prevent excessive deductions)
+  let penalty = 0;
+  const severityCounts: Record<Severity, number> = {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    info: 0,
+  };
+
+  for (const issue of allIssues) {
+    severityCounts[issue.severity]++;
+  }
+
+  // Apply penalties with caps:
+  // - Critical: up to 3 issues counted (max 45 point penalty)
+  // - High: up to 3 issues counted (max 24 point penalty)
+  // - Medium: up to 5 issues counted (max 15 point penalty)
+  // - Low/Info: no penalty
+  penalty += Math.min(severityCounts.critical, 3) * SEVERITY_PENALTIES.critical;
+  penalty += Math.min(severityCounts.high, 3) * SEVERITY_PENALTIES.high;
+  penalty += Math.min(severityCounts.medium, 5) * SEVERITY_PENALTIES.medium;
+
+  return penalty;
 }
 
 /**

@@ -9,11 +9,11 @@
  * 5. Azure CLI cached credentials
  */
 
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { CloudSource } from '../types.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface AzureOptions {
   subscription?: string;
@@ -43,15 +43,20 @@ export class AzureSource implements CloudSource {
 async function ensureAzureAuth(options: AzureOptions): Promise<void> {
   if (options.clientId && options.clientSecret && options.tenantId) {
     try {
-      await execAsync(
-        `az login --service-principal -u "${options.clientId}" -p "${options.clientSecret}" --tenant "${options.tenantId}" --output none`
-      );
+      await execFileAsync('az', [
+        'login',
+        '--service-principal',
+        '-u', options.clientId,
+        '-p', options.clientSecret,
+        '--tenant', options.tenantId,
+        '--output', 'none'
+      ]);
     } catch (err) {
       throw new Error(`Azure service principal login failed: ${(err as Error).message}`);
     }
   } else if (options.useManagedIdentity) {
     try {
-      await execAsync('az login --identity --output none');
+      await execFileAsync('az', ['login', '--identity', '--output', 'none']);
     } catch (err) {
       throw new Error(`Azure managed identity login failed: ${(err as Error).message}`);
     }
@@ -66,14 +71,20 @@ export async function getAzureDNSDomains(options: AzureOptions = {}): Promise<st
   // Handle service principal or managed identity auth
   await ensureAzureAuth(options);
 
-  const subscriptionArg = options.subscription ? `--subscription "${options.subscription}"` : '';
-  const rgArg = options.resourceGroup ? `-g "${options.resourceGroup}"` : '';
+  const args = ['network', 'dns', 'zone', 'list'];
+  
+  if (options.subscription) {
+    args.push('--subscription', options.subscription);
+  }
+  if (options.resourceGroup) {
+    args.push('-g', options.resourceGroup);
+  }
+  
+  args.push('--output', 'json');
 
   try {
     // List all DNS zones
-    const { stdout } = await execAsync(
-      `az network dns zone list ${subscriptionArg} ${rgArg} --output json`
-    );
+    const { stdout } = await execFileAsync('az', args);
 
     const zones: Array<{ 
       name: string; 
@@ -87,14 +98,15 @@ export async function getAzureDNSDomains(options: AzureOptions = {}): Promise<st
 
     return domains;
   } catch (err) {
-    const error = err as Error & { stderr?: string };
-    if (error.stderr?.includes('login') || error.stderr?.includes('credentials')) {
+    const error = err as Error & { stderr?: string; message?: string };
+    const errorMsg = error.stderr || error.message || '';
+    if (errorMsg.includes('login') || errorMsg.includes('credentials')) {
       throw new Error('Azure credentials not configured. Run "az login"');
     }
-    if (error.stderr?.includes('not found') || error.stderr?.includes('command not found')) {
+    if (errorMsg.includes('ENOENT') || errorMsg.includes('command not found')) {
       throw new Error('Azure CLI not found. Install from: https://docs.microsoft.com/cli/azure/install-azure-cli');
     }
-    if (error.stderr?.includes('subscription')) {
+    if (errorMsg.includes('subscription')) {
       throw new Error('Azure subscription not set. Use --azure-subscription or run "az account set -s SUBSCRIPTION_ID"');
     }
     throw new Error(`Failed to list Azure DNS zones: ${error.message}`);
@@ -104,14 +116,17 @@ export async function getAzureDNSDomains(options: AzureOptions = {}): Promise<st
 /**
  * List Azure subscriptions
  */
-export async function listAzureSubscriptions(): Promise<Array<{ id: string; name: string }>> {
+export async function listAzureSubscriptions(options: AzureOptions = {}): Promise<string[]> {
+  await ensureAzureAuth(options);
+
   try {
-    const { stdout } = await execAsync(
-      `az account list --output json`
-    );
+    const { stdout } = await execFileAsync('az', [
+      'account', 'list',
+      '--output', 'json'
+    ]);
 
     const subscriptions: Array<{ id: string; name: string }> = JSON.parse(stdout) || [];
-    return subscriptions;
+    return subscriptions.map(s => s.id);
   } catch {
     return [];
   }
@@ -120,20 +135,20 @@ export async function listAzureSubscriptions(): Promise<Array<{ id: string; name
 /**
  * Get domains from all Azure subscriptions
  */
-export async function getAzureDNSDomainsMultiSubscription(
-  subscriptions?: string[]
+export async function getAzureDNSDomainsAllSubscriptions(
+  options: AzureOptions = {}
 ): Promise<string[]> {
-  const subList = subscriptions || (await listAzureSubscriptions()).map(s => s.id);
+  const subscriptions = await listAzureSubscriptions(options);
   const allDomains: string[] = [];
 
-  for (const subscription of subList) {
+  for (const subscription of subscriptions) {
     try {
-      const domains = await getAzureDNSDomains({ subscription });
+      const domains = await getAzureDNSDomains({ ...options, subscription });
       allDomains.push(...domains);
     } catch {
-      // Skip subscriptions without DNS zones or access
+      // Skip subscriptions without access
     }
   }
 
-  return [...new Set(allDomains)]; // Deduplicate
+  return [...new Set(allDomains)];
 }

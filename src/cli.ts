@@ -28,6 +28,19 @@ function parseIntOrDefault(value: string, defaultValue: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue;
 }
 
+/**
+ * Validate domain and exit with error if invalid
+ */
+function validateDomainOrExit(domain: string): string {
+  const normalized = normalizeDomain(domain);
+  if (!isValidDomain(normalized)) {
+    console.error(`Error: Invalid domain format: "${domain}"`);
+    console.error('Domain must be a valid hostname (e.g., example.com)');
+    process.exit(1);
+  }
+  return normalized;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf-8'));
 
@@ -47,12 +60,7 @@ program
   .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .action(async (domain: string, options) => {
     // Normalize and validate domain
-    const normalizedDomain = normalizeDomain(domain);
-    if (!isValidDomain(normalizedDomain)) {
-      console.error(`Error: Invalid domain format: "${domain}"`);
-      console.error('Domain must be a valid hostname (e.g., example.com)');
-      process.exit(1);
-    }
+    const normalizedDomain = validateDomainOrExit(domain);
 
     const scanOptions: ScanOptions = {
       dkimSelectors: options.selectors?.split(',').map((s: string) => s.trim()).filter(Boolean),
@@ -378,13 +386,24 @@ program
   .argument('[domain]')
   .option('--json', 'Output as JSON')
   .option('-v, --verbose', 'Show detailed information')
+  .option('-t, --timeout <ms>', 'Timeout per check in milliseconds', '10000')
+  .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .action(async (domain: string | undefined, options) => {
     if (!domain) {
       program.help();
       return;
     }
 
-    const result = await analyzeDomain(domain);
+    // Normalize and validate domain (same as check command)
+    const normalizedDomain = validateDomainOrExit(domain);
+
+    const scanOptions: ScanOptions = {
+      dkimSelectors: options.selectors?.split(',').map((s: string) => s.trim()).filter(Boolean),
+      verbose: options.verbose,
+      timeout: parseIntOrDefault(options.timeout, DEFAULT_CHECK_TIMEOUT_MS),
+    };
+
+    const result = await analyzeDomain(normalizedDomain, scanOptions);
 
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));

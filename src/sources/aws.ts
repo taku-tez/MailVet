@@ -9,11 +9,11 @@
  * 5. AWS SSO / aws configure sso
  */
 
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { CloudSource } from '../types.js';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export interface AWSOptions {
   profile?: string;
@@ -43,7 +43,6 @@ export class AWSSource implements CloudSource {
 function buildAWSEnv(options: AWSOptions): Record<string, string> {
   const env: Record<string, string> = {};
 
-  // Explicit credentials take precedence
   if (options.accessKeyId) {
     env.AWS_ACCESS_KEY_ID = options.accessKeyId;
   }
@@ -58,19 +57,19 @@ function buildAWSEnv(options: AWSOptions): Record<string, string> {
 }
 
 /**
- * Build CLI arguments for AWS commands
+ * Build CLI arguments array for AWS commands (safe from injection)
  */
-function buildAWSArgs(options: AWSOptions): string {
+function buildAWSArgs(options: AWSOptions): string[] {
   const args: string[] = [];
 
   if (options.profile) {
-    args.push(`--profile ${options.profile}`);
+    args.push('--profile', options.profile);
   }
   if (options.region) {
-    args.push(`--region ${options.region}`);
+    args.push('--region', options.region);
   }
 
-  return args.join(' ');
+  return args;
 }
 
 /**
@@ -82,13 +81,20 @@ export async function assumeRole(
   options: AWSOptions = {}
 ): Promise<AWSOptions> {
   const envVars = buildAWSEnv(options);
-  const args = buildAWSArgs(options);
+  const baseArgs = buildAWSArgs(options);
 
   try {
-    const { stdout } = await execAsync(
-      `aws sts assume-role --role-arn ${roleArn} --role-session-name ${sessionName} ${args} --output json`,
-      { env: { ...process.env, ...envVars } }
-    );
+    const args = [
+      'sts', 'assume-role',
+      '--role-arn', roleArn,
+      '--role-session-name', sessionName,
+      ...baseArgs,
+      '--output', 'json'
+    ];
+
+    const { stdout } = await execFileAsync('aws', args, {
+      env: { ...process.env, ...envVars }
+    });
 
     const data = JSON.parse(stdout);
     const creds = data.Credentials;
@@ -120,14 +126,18 @@ export async function getRoute53Domains(options: AWSOptions = {}): Promise<strin
   }
 
   const envVars = buildAWSEnv(effectiveOptions);
-  const args = buildAWSArgs(effectiveOptions);
+  const baseArgs = buildAWSArgs(effectiveOptions);
 
   try {
-    // List all hosted zones
-    const { stdout } = await execAsync(
-      `aws route53 list-hosted-zones ${args} --output json`,
-      { env: { ...process.env, ...envVars } }
-    );
+    const args = [
+      'route53', 'list-hosted-zones',
+      ...baseArgs,
+      '--output', 'json'
+    ];
+
+    const { stdout } = await execFileAsync('aws', args, {
+      env: { ...process.env, ...envVars }
+    });
 
     const data = JSON.parse(stdout);
     const zones: Array<{ Name: string; Id: string; Config?: { PrivateZone?: boolean } }> = 
@@ -141,10 +151,10 @@ export async function getRoute53Domains(options: AWSOptions = {}): Promise<strin
     return domains;
   } catch (err) {
     const error = err as Error & { stderr?: string };
-    if (error.stderr?.includes('Unable to locate credentials')) {
+    if (error.stderr?.includes('Unable to locate credentials') || error.message?.includes('credentials')) {
       throw new Error('AWS credentials not configured. Run "aws configure" or set AWS_PROFILE');
     }
-    if (error.stderr?.includes('could not be found')) {
+    if (error.stderr?.includes('could not be found') || error.message?.includes('ENOENT')) {
       throw new Error('AWS CLI not found. Install with: pip install awscli');
     }
     throw new Error(`Failed to list Route53 zones: ${error.message}`);
@@ -159,13 +169,19 @@ export async function getRoute53ZoneDomains(
   options: AWSOptions = {}
 ): Promise<string[]> {
   const envVars = buildAWSEnv(options);
-  const args = buildAWSArgs(options);
+  const baseArgs = buildAWSArgs(options);
 
   try {
-    const { stdout } = await execAsync(
-      `aws route53 list-resource-record-sets --hosted-zone-id ${zoneId} ${args} --output json`,
-      { env: { ...process.env, ...envVars } }
-    );
+    const args = [
+      'route53', 'list-resource-record-sets',
+      '--hosted-zone-id', zoneId,
+      ...baseArgs,
+      '--output', 'json'
+    ];
+
+    const { stdout } = await execFileAsync('aws', args, {
+      env: { ...process.env, ...envVars }
+    });
 
     const data = JSON.parse(stdout);
     const records: Array<{ Name: string; Type: string }> = data.ResourceRecordSets || [];
