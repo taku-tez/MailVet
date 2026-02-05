@@ -1,0 +1,90 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import dns from 'node:dns/promises';
+import { checkTLSRPT } from './tls-rpt.js';
+
+vi.mock('node:dns/promises');
+
+describe('checkTLSRPT', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('detects valid TLS-RPT with mailto', async () => {
+    vi.mocked(dns.resolveTxt).mockResolvedValue([
+      ['v=TLSRPTv1; rua=mailto:tlsrpt@example.com']
+    ]);
+
+    const result = await checkTLSRPT('example.com');
+    
+    expect(result.found).toBe(true);
+    expect(result.rua).toContain('mailto:tlsrpt@example.com');
+    expect(result.issues.filter(i => i.severity === 'high')).toHaveLength(0);
+  });
+
+  it('detects TLS-RPT with https endpoint', async () => {
+    vi.mocked(dns.resolveTxt).mockResolvedValue([
+      ['v=TLSRPTv1; rua=https://report.example.com/tlsrpt']
+    ]);
+
+    const result = await checkTLSRPT('example.com');
+    
+    expect(result.found).toBe(true);
+    expect(result.rua).toContain('https://report.example.com/tlsrpt');
+  });
+
+  it('detects multiple reporting addresses', async () => {
+    vi.mocked(dns.resolveTxt).mockResolvedValue([
+      ['v=TLSRPTv1; rua=mailto:tlsrpt@example.com,https://report.example.com/tlsrpt']
+    ]);
+
+    const result = await checkTLSRPT('example.com');
+    
+    expect(result.found).toBe(true);
+    expect(result.rua).toHaveLength(2);
+  });
+
+  it('warns on missing rua', async () => {
+    vi.mocked(dns.resolveTxt).mockResolvedValue([
+      ['v=TLSRPTv1']
+    ]);
+
+    const result = await checkTLSRPT('example.com');
+    
+    expect(result.found).toBe(true);
+    expect(result.issues.some(i => i.message.includes('no reporting'))).toBe(true);
+  });
+
+  it('warns on invalid scheme', async () => {
+    vi.mocked(dns.resolveTxt).mockResolvedValue([
+      ['v=TLSRPTv1; rua=ftp://example.com/report']
+    ]);
+
+    const result = await checkTLSRPT('example.com');
+    
+    expect(result.found).toBe(true);
+    expect(result.issues.some(i => i.message.includes('Invalid'))).toBe(true);
+  });
+
+  it('reports no TLS-RPT found', async () => {
+    const error = new Error('ENODATA') as NodeJS.ErrnoException;
+    error.code = 'ENODATA';
+    vi.mocked(dns.resolveTxt).mockRejectedValue(error);
+
+    const result = await checkTLSRPT('example.com');
+    
+    expect(result.found).toBe(false);
+    expect(result.issues.some(i => i.severity === 'low')).toBe(true);
+  });
+
+  it('handles multiple TLS-RPT records', async () => {
+    vi.mocked(dns.resolveTxt).mockResolvedValue([
+      ['v=TLSRPTv1; rua=mailto:one@example.com'],
+      ['v=TLSRPTv1; rua=mailto:two@example.com']
+    ]);
+
+    const result = await checkTLSRPT('example.com');
+    
+    expect(result.found).toBe(true);
+    expect(result.issues.some(i => i.message.includes('Multiple'))).toBe(true);
+  });
+});

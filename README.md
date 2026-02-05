@@ -99,29 +99,42 @@ mailvet sources --aws --json
 ## Output Example
 
 ```
-📧 example.com - Grade: B (82/100)
+📧 example.com - Grade: A (100/100)
 
-SPF     ✅ Found
-        Record: v=spf1 include:_spf.google.com ~all
-        ⚠️ Mechanism: ~all
-        ✅ DNS lookups: 4/10
+SPF      ✅ Found
+         Record: v=spf1 include:_spf.google.com -all
+         ✅ Mechanism: -all
+         ✅ DNS lookups: 4/10
 
-DKIM    ✅ Found
-        ✅ google._domainkey (2048-bit)
-        ✅ selector1._domainkey (2048-bit)
+DKIM     ✅ Found
+         ✅ google._domainkey (2048-bit)
+         ✅ selector1._domainkey (2048-bit)
 
-DMARC   ✅ Found
-        Record: v=DMARC1; p=quarantine; rua=mailto:dmarc@example.com
-        ⚠️ Policy: p=quarantine
-        ✅ Reporting: enabled
+DMARC    ✅ Found
+         Record: v=DMARC1; p=reject; rua=mailto:dmarc@example.com
+         ✅ Policy: p=reject
+         ✅ Reporting: enabled
 
-MX      ✅ Found
-        ✅ aspmx.l.google.com (pri: 1)
-        ℹ️ Email provider detected: Google Workspace
+MX       ✅ Found
+         ✅ aspmx.l.google.com (pri: 1)
+         ℹ️ Email provider detected: Google Workspace
+
+BIMI     ✅ Found
+         ✅ Logo: https://example.com/logo.svg
+         ✅ VMC: configured
+
+MTA-STS  ✅ Found
+         ✅ Mode: enforce
+         ℹ️ Max age: 7 days
+
+TLS-RPT  ✅ Found
+         ✅ Reporting: 1 endpoint(s)
+
+ARC      ✅ Ready
+         ✅ Can sign ARC headers
 
 Recommendations:
-  1. Consider changing SPF from ~all (softfail) to -all (hardfail)
-  2. Consider upgrading DMARC policy from quarantine to reject
+  (none - perfect configuration!)
 ```
 
 ## Grading Criteria
@@ -136,30 +149,58 @@ Recommendations:
 
 ## Checks Performed
 
-### SPF
+### Core Checks
+
+#### SPF (Sender Policy Framework)
 - Record existence
 - Mechanism strength (-all > ~all > ?all > +all)
 - DNS lookup count (max 10)
 - Deprecated mechanisms (ptr)
 - Multiple record detection
 
-### DKIM
+#### DKIM (DomainKeys Identified Mail)
 - Common selector detection (google, selector1, default, etc.)
 - Key length validation (≥2048-bit recommended)
 - Multiple selector support
 
-### DMARC
+#### DMARC (Domain-based Message Authentication)
 - Record existence
 - Policy strength (reject > quarantine > none)
 - Subdomain policy (sp=)
 - Reporting configuration (rua/ruf)
 - Percentage coverage (pct=)
 
-### MX
+#### MX (Mail Exchange)
 - Record existence
 - Priority configuration
 - Redundancy check
 - Email provider identification
+
+### Advanced Checks
+
+#### BIMI (Brand Indicators for Message Identification)
+- Logo URL validation (HTTPS required)
+- SVG Tiny PS format recommendation
+- VMC (Verified Mark Certificate) detection
+- Prerequisite check (requires DMARC p=quarantine or reject)
+
+#### MTA-STS (Mail Transfer Agent Strict Transport Security)
+- DNS record validation (_mta-sts.domain)
+- Policy file fetch (https://mta-sts.domain/.well-known/mta-sts.txt)
+- Mode validation (enforce > testing > none)
+- MX host matching
+- Max age recommendations
+
+#### TLS-RPT (SMTP TLS Reporting)
+- DNS record validation (_smtp._tls.domain)
+- Reporting endpoint validation (mailto: or https:)
+- Multiple endpoint support
+
+#### ARC (Authenticated Received Chain) Readiness
+- Prerequisites check (DKIM required)
+- Key strength validation for ARC signing
+- DMARC dependency check
+- Note: ARC is header-based, this checks signing readiness
 
 ## Programmatic Usage
 
