@@ -45,17 +45,24 @@ export async function checkDKIM(
 
   // Check key lengths for found selectors
   for (const sel of foundSelectors) {
+    // ed25519 keys are always 256-bit and considered strong
+    if (sel.keyType === 'ed25519') {
+      // ed25519 is modern and secure, no issue needed
+      continue;
+    }
+    
+    // RSA key length checks
     if (sel.keyLength && sel.keyLength < 1024) {
       issues.push({
         severity: 'critical',
-        message: `DKIM selector "${sel.selector}" uses weak key (${sel.keyLength}-bit)`,
-        recommendation: 'Upgrade to at least 2048-bit RSA key'
+        message: `DKIM selector "${sel.selector}" uses weak RSA key (${sel.keyLength}-bit)`,
+        recommendation: 'Upgrade to at least 2048-bit RSA key or use ed25519'
       });
     } else if (sel.keyLength && sel.keyLength < 2048) {
       issues.push({
         severity: 'medium',
-        message: `DKIM selector "${sel.selector}" uses 1024-bit key`,
-        recommendation: 'Consider upgrading to 2048-bit RSA key'
+        message: `DKIM selector "${sel.selector}" uses 1024-bit RSA key`,
+        recommendation: 'Consider upgrading to 2048-bit RSA key or ed25519'
       });
     }
   }
@@ -85,7 +92,7 @@ async function checkDKIMSelector(
 
     const record = dkimRecords[0];
     const keyType = extractKeyType(record);
-    const keyLength = extractKeyLength(record);
+    const keyLength = extractKeyLength(record, keyType);
 
     return {
       found: true,
@@ -103,7 +110,12 @@ function extractKeyType(record: string): string | undefined {
   return match ? match[1] : 'rsa'; // Default is RSA
 }
 
-function extractKeyLength(record: string): number | undefined {
+function extractKeyLength(record: string, keyType?: string): number | undefined {
+  // ed25519 keys are always 256-bit
+  if (keyType === 'ed25519') {
+    return 256;
+  }
+
   const match = record.match(/p=([^;\s]+)/i);
   if (!match) return undefined;
 

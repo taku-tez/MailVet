@@ -61,8 +61,37 @@ export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
 
     // Try to fetch the policy file
     let policy: MTASTSPolicy | undefined;
-    try {
-      policy = await fetchMTASTSPolicy(domain);
+    const policyResult = await fetchMTASTSPolicy(domain);
+    
+    if (!policyResult.ok) {
+      // Policy fetch failed
+      if (policyResult.status === 404) {
+        issues.push({
+          severity: 'high',
+          message: 'MTA-STS policy file not found (404)',
+          recommendation: 'Create policy file at https://mta-sts.{domain}/.well-known/mta-sts.txt'
+        });
+      } else if (policyResult.reason === 'timeout') {
+        issues.push({
+          severity: 'high',
+          message: 'MTA-STS policy fetch timed out',
+          recommendation: 'Ensure the policy endpoint responds within 5 seconds'
+        });
+      } else if (policyResult.reason === 'network') {
+        issues.push({
+          severity: 'high',
+          message: `Could not connect to MTA-STS policy endpoint: ${policyResult.error || 'network error'}`,
+          recommendation: 'Ensure https://mta-sts.{domain} is accessible and has valid TLS'
+        });
+      } else {
+        issues.push({
+          severity: 'high',
+          message: `MTA-STS policy fetch failed: ${policyResult.error || 'unknown error'}`,
+          recommendation: 'Ensure https://mta-sts.{domain}/.well-known/mta-sts.txt is accessible'
+        });
+      }
+    } else {
+      policy = policyResult.policy;
       
       if (policy) {
         // Check policy mode
@@ -100,12 +129,6 @@ export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
           });
         }
       }
-    } catch {
-      issues.push({
-        severity: 'high',
-        message: 'Could not fetch MTA-STS policy file',
-        recommendation: 'Ensure https://mta-sts.{domain}/.well-known/mta-sts.txt is accessible'
-      });
     }
 
     return {
@@ -132,7 +155,15 @@ export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
   }
 }
 
-async function fetchMTASTSPolicy(domain: string): Promise<MTASTSPolicy | undefined> {
+interface PolicyFetchResult {
+  ok: boolean;
+  policy?: MTASTSPolicy;
+  status?: number;
+  reason?: 'timeout' | 'network' | 'http_error' | 'parse_error';
+  error?: string;
+}
+
+async function fetchMTASTSPolicy(domain: string): Promise<PolicyFetchResult> {
   const policyUrl = `https://mta-sts.${domain}/.well-known/mta-sts.txt`;
   
   try {
@@ -141,13 +172,31 @@ async function fetchMTASTSPolicy(domain: string): Promise<MTASTSPolicy | undefin
     });
     
     if (!response.ok) {
-      return undefined;
+      return {
+        ok: false,
+        status: response.status,
+        reason: 'http_error',
+        error: `HTTP ${response.status}`
+      };
     }
 
     const text = await response.text();
-    return parseMTASTSPolicy(text);
-  } catch {
-    return undefined;
+    const policy = parseMTASTSPolicy(text);
+    return { ok: true, policy };
+  } catch (err) {
+    const error = err as Error;
+    
+    if (error.name === 'TimeoutError' || error.message.includes('timeout')) {
+      return { ok: false, reason: 'timeout', error: 'Request timed out' };
+    }
+    
+    if (error.message.includes('ENOTFOUND') || 
+        error.message.includes('ECONNREFUSED') ||
+        error.message.includes('fetch')) {
+      return { ok: false, reason: 'network', error: error.message };
+    }
+    
+    return { ok: false, reason: 'network', error: error.message };
   }
 }
 

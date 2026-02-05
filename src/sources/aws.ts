@@ -107,8 +107,20 @@ export async function assumeRole(
  * Get all domains from AWS Route53 hosted zones
  */
 export async function getRoute53Domains(options: AWSOptions = {}): Promise<string[]> {
-  const envVars = buildAWSEnv(options);
-  const args = buildAWSArgs(options);
+  let effectiveOptions = options;
+
+  // If roleArn is specified, assume the role first
+  if (options.roleArn) {
+    try {
+      const assumedCreds = await assumeRole(options.roleArn, 'mailvet-session', options);
+      effectiveOptions = { ...options, ...assumedCreds };
+    } catch (err) {
+      throw new Error(`Failed to assume role ${options.roleArn}: ${(err as Error).message}`);
+    }
+  }
+
+  const envVars = buildAWSEnv(effectiveOptions);
+  const args = buildAWSArgs(effectiveOptions);
 
   try {
     // List all hosted zones

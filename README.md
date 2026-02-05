@@ -58,6 +58,7 @@ mailvet scan -f domains.txt -c 10
 mailvet scan --aws
 mailvet scan --aws --aws-profile production
 mailvet scan --aws --aws-region us-east-1
+mailvet scan --aws --aws-role-arn arn:aws:iam::123456789:role/DNSReadOnly
 
 # Google Cloud DNS
 mailvet scan --gcp

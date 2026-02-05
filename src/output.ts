@@ -115,6 +115,11 @@ export function formatResult(result: DomainResult, verbose = false): string {
       } else if (result.bimi?.found) {
         sectionLines.push(`   ${WARN} No VMC certificate`);
       }
+      // Show high severity issues (e.g., DMARC prerequisite)
+      const criticalIssues = result.bimi?.issues.filter(i => i.severity === 'high' || i.severity === 'critical') || [];
+      for (const issue of criticalIssues) {
+        sectionLines.push(`   ${FAIL} ${issue.message}`);
+      }
       return sectionLines;
     }));
   }

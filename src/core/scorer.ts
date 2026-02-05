@@ -56,8 +56,10 @@ export function calculateGrade(
   if (dkim.found) {
     score += 15; // Base points for having DKIM
     
-    // Check key strength
-    const hasStrongKey = dkim.selectors.some(s => s.keyLength && s.keyLength >= 2048);
+    // Check key strength (ed25519 is always considered strong)
+    const hasStrongKey = dkim.selectors.some(s => 
+      s.keyType === 'ed25519' || (s.keyLength && s.keyLength >= 2048)
+    );
     if (hasStrongKey) {
       score += 10;
     } else {

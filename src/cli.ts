@@ -32,11 +32,13 @@ program
   .description('Check email security configuration for a single domain')
   .option('--json', 'Output as JSON')
   .option('-v, --verbose', 'Show detailed information')
+  .option('-t, --timeout <ms>', 'Timeout per check in milliseconds', '10000')
   .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .action(async (domain: string, options) => {
     const scanOptions: ScanOptions = {
       dkimSelectors: options.selectors?.split(','),
       verbose: options.verbose,
+      timeout: parseInt(options.timeout, 10),
     };
 
     const result = await analyzeDomain(domain, scanOptions);
@@ -77,6 +79,7 @@ program
   .option('-o, --output <path>', 'Write results to file')
   .option('--json', 'Output as JSON')
   .option('-c, --concurrency <n>', 'Concurrent checks', '5')
+  .option('-t, --timeout <ms>', 'Timeout per check in milliseconds', '10000')
   .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .action(async (options) => {
     let domains: string[] = [];
@@ -105,7 +108,7 @@ program
         const awsDomains = await getRoute53Domains({ 
           profile: options.awsProfile,
           region: options.awsRegion,
-          // Role assumption handled separately if needed
+          roleArn: options.awsRoleArn,
         });
         domains.push(...awsDomains);
         sources.push(`AWS Route53 (${awsDomains.length})`);
@@ -196,6 +199,7 @@ program
     const scanOptions: ScanOptions = {
       concurrency: parseInt(options.concurrency, 10),
       dkimSelectors: options.selectors?.split(','),
+      timeout: parseInt(options.timeout, 10),
     };
 
     const results = await analyzeMultiple(domains, scanOptions);
@@ -224,6 +228,7 @@ program
   .option('--aws', 'List AWS Route53 hosted zones')
   .option('--aws-profile <profile>', 'AWS profile to use')
   .option('--aws-region <region>', 'AWS region')
+  .option('--aws-role-arn <arn>', 'AWS IAM role to assume')
   .option('--gcp', 'List Google Cloud DNS zones')
   .option('--gcp-org', 'List zones from all GCP projects')
   .option('--gcp-org-id <id>', 'GCP organization ID')
@@ -248,6 +253,7 @@ program
         allDomains['aws'] = await getRoute53Domains({ 
           profile: options.awsProfile,
           region: options.awsRegion,
+          roleArn: options.awsRoleArn,
         });
       } catch (err) {
         console.error(`AWS: ${(err as Error).message}`);
