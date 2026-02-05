@@ -84,12 +84,25 @@ dnsvet scan --azure --azure-subscription xxx-xxx
 dnsvet scan --cloudflare --cloudflare-token $CF_TOKEN
 ```
 
-### List Cloud Domains
+### List Cloud Domains (sources)
 
 ```bash
-dnsvet list --aws
-dnsvet list --gcp --gcp-org 123456789
-dnsvet list --cloudflare --json
+dnsvet sources --aws
+dnsvet sources --gcp --gcp-org 123456789
+dnsvet sources --cloudflare --json
+```
+
+### Selective Checks
+
+```bash
+# Skip specific checks (faster scans)
+dnsvet check example.com --skip bimi,arc,dnssec
+
+# Run only specific checks
+dnsvet check example.com --only spf,dkim,dmarc
+
+# Custom DNS resolver
+dnsvet check example.com --resolver 8.8.8.8
 ```
 
 ## Output Example
@@ -173,6 +186,14 @@ CLOUDFLARE_API_TOKEN=xxx
 CLOUDFLARE_EMAIL=xxx
 CLOUDFLARE_API_KEY=xxx
 ```
+
+## Prerequisites
+
+- **Node.js** 18+ (required)
+- **dig** (bind-utils/dnsutils) - Required for DNSSEC checks. Without it, DNSSEC validation will report a warning but other checks work normally.
+- **aws** CLI - Required for `--aws` source
+- **gcloud** CLI - Required for `--gcp` source
+- **az** CLI - Required for `--azure` source
 
 ## License
 

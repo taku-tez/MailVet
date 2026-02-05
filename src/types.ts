@@ -113,8 +113,10 @@ export interface DNSSECResult {
       keyTag: number;
       algorithm: number;
       algorithmName: string;
+      strength?: 'strong' | 'acceptable' | 'weak' | 'deprecated';
       digestType: number;
       digestTypeName: string;
+      digestStrength?: 'strong' | 'acceptable' | 'weak';
     }>;
   };
   dnskey?: {
@@ -144,6 +146,18 @@ export interface DomainResult {
   error?: string;
 }
 
+export interface CheckOptions {
+  spf?: boolean;
+  dkim?: boolean;
+  dmarc?: boolean;
+  mx?: boolean;
+  bimi?: boolean;
+  mtaSts?: boolean;
+  tlsRpt?: boolean;
+  arc?: boolean;
+  dnssec?: boolean;
+}
+
 export interface ScanOptions {
   domain?: string;
   file?: string;
@@ -161,6 +175,8 @@ export interface ScanOptions {
   timeout?: number;
   concurrency?: number;
   verifyTlsRptEndpoints?: boolean;
+  checks?: CheckOptions;
+  resolver?: string;
 }
 
 export interface CloudSource {

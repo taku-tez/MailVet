@@ -11,6 +11,7 @@ import type {
   MTASTSResult,
   TLSRPTResult,
   ARCReadinessResult,
+  DNSSECResult,
   Grade,
   Issue,
   Severity
@@ -52,6 +53,7 @@ interface GradeResult {
  * - MTA-STS enforce: +4 (testing: +2)
  * - TLS-RPT: +3
  * - ARC ready: +3
+ * - DNSSEC enabled: +5 (with chain valid), +3 (enabled only)
  * 
  * Grading criteria:
  * - A (90-100): SPF (-all) + DKIM + DMARC (reject)
@@ -68,7 +70,8 @@ export function calculateGrade(
   bimi?: BIMIResult,
   mtaSts?: MTASTSResult,
   tlsRpt?: TLSRPTResult,
-  arc?: ARCReadinessResult
+  arc?: ARCReadinessResult,
+  dnssec?: DNSSECResult
 ): GradeResult {
   let score = 0;
 
@@ -166,11 +169,20 @@ export function calculateGrade(
     bonus += 3;
   }
 
+  // DNSSEC bonus (+5 with valid chain, +3 enabled only)
+  if (dnssec?.enabled) {
+    if (dnssec.chainValid) {
+      bonus += 5;
+    } else {
+      bonus += 3;
+    }
+  }
+
   // Apply bonus (capped so total doesn't exceed 100)
   score = Math.min(100, score + Math.min(bonus, SCORE_BONUS_MAX));
 
   // Apply penalties for critical/high severity issues (misconfigurations)
-  const penalty = calculateIssuePenalty(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc);
+  const penalty = calculateIssuePenalty(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc, dnssec);
   score = Math.max(0, score - penalty);
 
   // Clamp score to 0-100
@@ -205,7 +217,8 @@ function calculateIssuePenalty(
   bimi?: BIMIResult,
   mtaSts?: MTASTSResult,
   tlsRpt?: TLSRPTResult,
-  arc?: ARCReadinessResult
+  arc?: ARCReadinessResult,
+  dnssec?: DNSSECResult
 ): number {
   // Collect all issues
   const allIssues: Issue[] = [
@@ -217,6 +230,7 @@ function calculateIssuePenalty(
     ...(mtaSts?.issues || []),
     ...(tlsRpt?.issues || []),
     ...(arc?.issues || []),
+    ...(dnssec?.issues || []),
   ];
 
   // Calculate total penalty (cap per severity to prevent excessive deductions)
@@ -256,7 +270,8 @@ export function generateRecommendations(
   bimi?: BIMIResult,
   mtaSts?: MTASTSResult,
   tlsRpt?: TLSRPTResult,
-  arc?: ARCReadinessResult
+  arc?: ARCReadinessResult,
+  dnssec?: DNSSECResult
 ): string[] {
   const recommendations: Array<{ priority: number; text: string }> = [];
 
@@ -364,6 +379,50 @@ export function generateRecommendations(
       recommendations.push({
         priority: 16,
         text: '✨ [オプション] VMC証明書を追加すると、より多くのメールクライアントでロゴが表示されます（Gmail等で必須）'
+      });
+    }
+  }
+
+  // DNSSEC recommendations
+  if (!dnssec?.enabled) {
+    recommendations.push({
+      priority: 13,
+      text: '💡 [推奨] DNSSECを有効にしてください - DNSスプーフィングやキャッシュポイズニングからドメインを保護できます'
+    });
+  } else if (dnssec.enabled && !dnssec.chainValid) {
+    recommendations.push({
+      priority: 6,
+      text: '⚠️ [重要] DNSSECのチェーンオブトラストが不完全です - DS/DNSKEYレコードの設定を確認してください'
+    });
+  } else {
+    // Check for weak algorithms
+    const weakAlgos = dnssec.ds?.records.filter(r => r.strength === 'weak' || r.strength === 'deprecated');
+    if (weakAlgos && weakAlgos.length > 0) {
+      recommendations.push({
+        priority: 8,
+        text: `⚠️ [重要] DNSSECで弱いアルゴリズムが使用されています（${weakAlgos.map(a => a.algorithmName).join(', ')}）- より強力なアルゴリズムへの移行を検討してください`
+      });
+    }
+    const weakDigests = dnssec.ds?.records.filter(r => r.digestStrength === 'weak');
+    if (weakDigests && weakDigests.length > 0) {
+      recommendations.push({
+        priority: 9,
+        text: '💡 [推奨] DSレコードのダイジェストタイプをSHA-256以上に更新してください - SHA-1は非推奨です'
+      });
+    }
+  }
+
+  // ARC recommendations
+  if (arc && !arc.ready) {
+    if (!dkim.found) {
+      recommendations.push({
+        priority: 14,
+        text: '💡 [推奨] DKIMを設定するとARC署名が可能になります - メーリングリストや転送メールの認証維持に有効です'
+      });
+    } else if (!arc.canSign) {
+      recommendations.push({
+        priority: 15,
+        text: '✨ [オプション] ARC署名を有効にしてください - メーリングリストや転送経由のメール認証を維持できます'
       });
     }
   }

@@ -76,4 +76,41 @@ export async function safeResolveMx(domain: string): Promise<MxRecord[]> {
   }
 }
 
+/**
+ * Simple in-memory DNS cache for deduplication within a single domain scan.
+ * TXT and MX records for the same domain are often queried multiple times
+ * across SPF/DKIM/DMARC/MTA-STS/TLS-RPT checks.
+ */
+const dnsCache = new Map<string, { value: unknown; expires: number }>();
+const DNS_CACHE_TTL_MS = 60000; // 1 minute
+
+export function clearDnsCache(): void {
+  dnsCache.clear();
+}
+
+async function cachedResolve<T>(key: string, resolver: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const cached = dnsCache.get(key);
+  if (cached && cached.expires > now) {
+    return cached.value as T;
+  }
+  const value = await resolver();
+  dnsCache.set(key, { value, expires: now + DNS_CACHE_TTL_MS });
+  return value;
+}
+
+/**
+ * Cached TXT record resolution
+ */
+export async function cachedResolveTxt(domain: string): Promise<string[]> {
+  return cachedResolve(`txt:${domain}`, () => safeResolveTxt(domain));
+}
+
+/**
+ * Cached MX record resolution
+ */
+export async function cachedResolveMx(domain: string): Promise<MxRecord[]> {
+  return cachedResolve(`mx:${domain}`, () => safeResolveMx(domain));
+}
+
 export { dns };

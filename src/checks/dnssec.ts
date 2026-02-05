@@ -9,7 +9,7 @@ import type { Issue } from '../types.js';
 import { dns } from '../utils/dns.js';
 
 // DNSSEC algorithm names (RFC 8624)
-const DNSSEC_ALGORITHMS: Record<number, { name: string; strength: 'strong' | 'acceptable' | 'weak' | 'deprecated' }> = {
+export const DNSSEC_ALGORITHMS: Record<number, { name: string; strength: 'strong' | 'acceptable' | 'weak' | 'deprecated' }> = {
   1: { name: 'RSAMD5', strength: 'deprecated' },
   3: { name: 'DSA/SHA1', strength: 'deprecated' },
   5: { name: 'RSASHA1', strength: 'weak' },
@@ -24,7 +24,7 @@ const DNSSEC_ALGORITHMS: Record<number, { name: string; strength: 'strong' | 'ac
 };
 
 // DS digest types
-const DS_DIGEST_TYPES: Record<number, { name: string; strength: 'strong' | 'acceptable' | 'weak' }> = {
+export const DS_DIGEST_TYPES: Record<number, { name: string; strength: 'strong' | 'acceptable' | 'weak' }> = {
   1: { name: 'SHA-1', strength: 'weak' },
   2: { name: 'SHA-256', strength: 'strong' },
   3: { name: 'GOST R 34.11-94', strength: 'acceptable' },
@@ -32,7 +32,7 @@ const DS_DIGEST_TYPES: Record<number, { name: string; strength: 'strong' | 'acce
 };
 
 // Key flags
-const DNSKEY_FLAGS = {
+export const DNSKEY_FLAGS = {
   ZONE_KEY: 256,    // ZSK (Zone Signing Key)
   SEP_KEY: 257,     // KSK (Key Signing Key) / Secure Entry Point
 };
@@ -57,8 +57,10 @@ export interface DSRecord {
   keyTag: number;
   algorithm: number;
   algorithmName: string;
+  strength?: 'strong' | 'acceptable' | 'weak' | 'deprecated';
   digestType: number;
   digestTypeName: string;
+  digestStrength?: 'strong' | 'acceptable' | 'weak';
   digest: string;
 }
 
@@ -87,10 +89,13 @@ export interface DNSSECOptions {
 export async function checkDNSSEC(domain: string, options: DNSSECOptions = {}): Promise<DNSSECResult> {
   const issues: Issue[] = [];
 
+  // Default to Google DNS for DNSSEC - system DNS often doesn't return DS/DNSKEY
+  const resolver = options.resolver || '8.8.8.8';
+
   try {
     // Check for DS records at parent zone
-    const dsResult = await fetchDSRecords(domain, options.resolver);
-    const dnskeyResult = await fetchDNSKEYRecords(domain, options.resolver);
+    const dsResult = await fetchDSRecords(domain, resolver);
+    const dnskeyResult = await fetchDNSKEYRecords(domain, resolver);
 
     // Report fetch errors as issues
     if (dsResult.error && dnskeyResult.error) {
@@ -124,8 +129,10 @@ export async function checkDNSSEC(domain: string, options: DNSSECOptions = {}): 
         keyTag,
         algorithm,
         algorithmName: DNSSEC_ALGORITHMS[algorithm]?.name || `Unknown (${algorithm})`,
+        strength: DNSSEC_ALGORITHMS[algorithm]?.strength as DSRecord['strength'],
         digestType,
         digestTypeName: DS_DIGEST_TYPES[digestType]?.name || `Unknown (${digestType})`,
+        digestStrength: DS_DIGEST_TYPES[digestType]?.strength as DSRecord['digestStrength'],
         digest,
       };
     });

@@ -74,17 +74,24 @@ export async function analyzeDomain(
     }
   };
 
+  // Check toggle defaults (all enabled unless explicitly disabled)
+  const checks = options.checks || {};
+  const isEnabled = (check: keyof typeof checks): boolean => checks[check] !== false;
+
+  // Build check promises (skip disabled checks)
+  const checkPromises = [
+    isEnabled('spf') ? wrapWithTimeout(checkSPF(domain), 'SPF') : Promise.resolve({ found: false, issues: [] } as SPFResult),
+    isEnabled('dkim') ? wrapWithTimeout(checkDKIM(domain, dkimSelectors), 'DKIM') : Promise.resolve({ found: false, selectors: [], issues: [] } as DKIMResult),
+    isEnabled('dmarc') ? wrapWithTimeout(checkDMARC(domain), 'DMARC') : Promise.resolve({ found: false, issues: [] } as DMARCResult),
+    isEnabled('mx') ? wrapWithTimeout(checkMX(domain), 'MX') : Promise.resolve({ found: false, records: [], issues: [] } as MXResult),
+    isEnabled('bimi') ? wrapWithTimeout(checkBIMI(domain), 'BIMI') : Promise.resolve(undefined),
+    isEnabled('mtaSts') ? wrapWithTimeout(checkMTASTS(domain, { timeout }), 'MTA-STS') : Promise.resolve(undefined),
+    isEnabled('tlsRpt') ? wrapWithTimeout(checkTLSRPT(domain, { verifyEndpoints: options.verifyTlsRptEndpoints, timeout }), 'TLS-RPT') : Promise.resolve(undefined),
+    isEnabled('dnssec') ? wrapWithTimeout(checkDNSSEC(domain, { resolver: options.resolver }), 'DNSSEC') : Promise.resolve(undefined),
+  ] as const;
+
   // Use Promise.allSettled to handle individual failures gracefully
-  const [spfResult, dkimResult, dmarcResult, mxResult, bimiResult, mtaStsResult, tlsRptResult, dnssecResult] = await Promise.allSettled([
-    wrapWithTimeout(checkSPF(domain), 'SPF'),
-    wrapWithTimeout(checkDKIM(domain, dkimSelectors), 'DKIM'),
-    wrapWithTimeout(checkDMARC(domain), 'DMARC'),
-    wrapWithTimeout(checkMX(domain), 'MX'),
-    wrapWithTimeout(checkBIMI(domain), 'BIMI'),
-    wrapWithTimeout(checkMTASTS(domain, { timeout }), 'MTA-STS'),
-    wrapWithTimeout(checkTLSRPT(domain, { verifyEndpoints: options.verifyTlsRptEndpoints, timeout }), 'TLS-RPT'),
-    wrapWithTimeout(checkDNSSEC(domain), 'DNSSEC'),
-  ]);
+  const [spfResult, dkimResult, dmarcResult, mxResult, bimiResult, mtaStsResult, tlsRptResult, dnssecResult] = await Promise.allSettled(checkPromises);
 
   // Extract results, creating failed results for rejected promises
   const spf: SPFResult = spfResult.status === 'fulfilled' 
@@ -103,17 +110,17 @@ export async function analyzeDomain(
     ? mxResult.value
     : createFailedResult<MXResult>('MX', mxResult.reason?.message || 'Unknown error', { records: [] });
 
-  const bimi: BIMIResult = bimiResult.status === 'fulfilled'
-    ? bimiResult.value
-    : createFailedResult<BIMIResult>('BIMI', bimiResult.reason?.message || 'Unknown error', {});
+  const bimi: BIMIResult | undefined = bimiResult.status === 'fulfilled'
+    ? bimiResult.value ?? undefined
+    : bimiResult.reason ? createFailedResult<BIMIResult>('BIMI', bimiResult.reason?.message || 'Unknown error', {}) : undefined;
 
-  const mtaSts: MTASTSResult = mtaStsResult.status === 'fulfilled'
-    ? mtaStsResult.value
-    : createFailedResult<MTASTSResult>('MTA-STS', mtaStsResult.reason?.message || 'Unknown error', {});
+  const mtaSts: MTASTSResult | undefined = mtaStsResult.status === 'fulfilled'
+    ? mtaStsResult.value ?? undefined
+    : mtaStsResult.reason ? createFailedResult<MTASTSResult>('MTA-STS', mtaStsResult.reason?.message || 'Unknown error', {}) : undefined;
 
-  const tlsRpt: TLSRPTResult = tlsRptResult.status === 'fulfilled'
-    ? tlsRptResult.value
-    : createFailedResult<TLSRPTResult>('TLS-RPT', tlsRptResult.reason?.message || 'Unknown error', {});
+  const tlsRpt: TLSRPTResult | undefined = tlsRptResult.status === 'fulfilled'
+    ? tlsRptResult.value ?? undefined
+    : tlsRptResult.reason ? createFailedResult<TLSRPTResult>('TLS-RPT', tlsRptResult.reason?.message || 'Unknown error', {}) : undefined;
 
   // DNSSEC result (uses different structure, handle separately)
   const dnssec: DNSSECResult | undefined = dnssecResult.status === 'fulfilled'
@@ -124,7 +131,7 @@ export async function analyzeDomain(
   const arc = checkARCReadiness(spf, dkim, dmarc);
 
   // BIMI prerequisite check: requires DMARC quarantine or reject
-  if (bimi.found) {
+  if (bimi?.found) {
     if (!dmarc.found) {
       bimi.issues.push({
         severity: 'high',
@@ -141,7 +148,7 @@ export async function analyzeDomain(
   }
 
   // MTA-STS / MX consistency check
-  if (mtaSts.found && mtaSts.policy?.mx && mtaSts.policy.mx.length > 0 && mx.found) {
+  if (mtaSts?.found && mtaSts.policy?.mx && mtaSts.policy.mx.length > 0 && mx.found) {
     const mtaStsMxPatterns = mtaSts.policy.mx;
     const mxHosts = mx.records.map(r => r.exchange.toLowerCase().replace(/\.$/, ''));
     
@@ -166,8 +173,8 @@ export async function analyzeDomain(
     }
   }
 
-  const { grade, score } = calculateGrade(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc);
-  const recommendations = generateRecommendations(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc);
+  const { grade, score } = calculateGrade(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc, dnssec);
+  const recommendations = generateRecommendations(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc, dnssec);
 
   // Collect any check-level errors for the error field (including advanced checks)
   const errors: string[] = [];

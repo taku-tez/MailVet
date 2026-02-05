@@ -41,6 +41,42 @@ function validateDomainOrExit(domain: string): string {
   return normalized;
 }
 
+/**
+ * Parse --skip/--only CLI options into CheckOptions
+ */
+function parseCheckOptions(skip?: string, only?: string): ScanOptions['checks'] {
+  const ALL_CHECKS = ['spf', 'dkim', 'dmarc', 'mx', 'bimi', 'mta-sts', 'tls-rpt', 'arc', 'dnssec'] as const;
+  const normalize = (name: string): string => name.replace(/-/g, '').toLowerCase();
+  const keyMap: Record<string, keyof NonNullable<ScanOptions['checks']>> = {
+    'spf': 'spf', 'dkim': 'dkim', 'dmarc': 'dmarc', 'mx': 'mx',
+    'bimi': 'bimi', 'mtasts': 'mtaSts', 'tlsrpt': 'tlsRpt', 'arc': 'arc', 'dnssec': 'dnssec'
+  };
+
+  if (only) {
+    // Only run specified checks
+    const enabledSet = new Set(only.split(',').map(s => normalize(s.trim())));
+    const checks: Record<string, boolean> = {};
+    for (const c of ALL_CHECKS) {
+      const key = keyMap[normalize(c)];
+      if (key) checks[key] = enabledSet.has(normalize(c));
+    }
+    return checks;
+  }
+
+  if (skip) {
+    // Skip specified checks
+    const skipSet = new Set(skip.split(',').map(s => normalize(s.trim())));
+    const checks: Record<string, boolean> = {};
+    for (const c of ALL_CHECKS) {
+      const key = keyMap[normalize(c)];
+      if (key && skipSet.has(normalize(c))) checks[key] = false;
+    }
+    return checks;
+  }
+
+  return undefined;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf-8'));
 
@@ -59,6 +95,9 @@ program
   .option('-t, --timeout <ms>', 'Timeout per check in milliseconds', '10000')
   .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .option('--verify-tlsrpt-endpoints', 'Verify TLS-RPT endpoint reachability')
+  .option('--resolver <ip>', 'Custom DNS resolver (e.g., 8.8.8.8)')
+  .option('--skip <checks>', 'Skip specific checks (comma-separated: spf,dkim,dmarc,mx,bimi,mta-sts,tls-rpt,arc,dnssec)')
+  .option('--only <checks>', 'Run only specific checks (comma-separated: spf,dkim,dmarc,mx,bimi,mta-sts,tls-rpt,arc,dnssec)')
   .action(async (domain: string, options) => {
     // Normalize and validate domain
     const normalizedDomain = validateDomainOrExit(domain);
@@ -68,6 +107,8 @@ program
       verbose: options.verbose,
       timeout: parseIntOrDefault(options.timeout, DEFAULT_CHECK_TIMEOUT_MS),
       verifyTlsRptEndpoints: options.verifyTlsrptEndpoints,
+      resolver: options.resolver,
+      checks: parseCheckOptions(options.skip, options.only),
     };
 
     const result = await analyzeDomain(normalizedDomain, scanOptions);

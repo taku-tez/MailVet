@@ -16,7 +16,7 @@ export const DEFAULT_CONCURRENCY = 5;
 export const SCORE_SPF_MAX = 35;
 export const SCORE_DKIM_MAX = 25;
 export const SCORE_DMARC_MAX = 40;
-export const SCORE_BONUS_MAX = 15;
+export const SCORE_BONUS_MAX = 20; // BIMI(5) + MTA-STS(4) + TLS-RPT(3) + ARC(3) + DNSSEC(5)
 
 // Grade thresholds
 export const GRADE_A_MIN = 90;
