@@ -151,7 +151,7 @@ async function validateMailtoEndpoint(
       endpointStatus.push({ endpoint: addr, type: 'mailto', reachable: false, error: 'No MX records' });
     }
   } else {
-    endpointStatus.push({ endpoint: addr, type: 'mailto' });
+    endpointStatus.push({ endpoint: addr, type: 'mailto', reachable: undefined });
   }
 }
 
@@ -177,7 +177,7 @@ async function validateHttpsEndpoint(
     // Basic URL validation
     try {
       new URL(addr);
-      endpointStatus.push({ endpoint: addr, type: 'https' });
+      endpointStatus.push({ endpoint: addr, type: 'https', reachable: undefined });
     } catch {
       issues.push({
         severity: 'medium',

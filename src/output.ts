@@ -193,8 +193,12 @@ export function formatResult(result: DomainResult, verbose = false): string {
           if (result.tlsRpt.endpointStatus && result.tlsRpt.endpointStatus.length > 0) {
             sectionLines.push(`   ${INFO} Endpoint verification:`);
             for (const status of result.tlsRpt.endpointStatus) {
-              const icon = status.reachable ? CHECK : FAIL;
-              const errorMsg = status.error ? ` (${status.error})` : '';
+              const icon = status.reachable === undefined ? INFO : status.reachable ? CHECK : FAIL;
+              const errorMsg = status.reachable === undefined
+                ? ' (unverified)'
+                : status.error
+                  ? ` (${status.error})`
+                  : '';
               sectionLines.push(`      ${icon} ${status.type}: ${truncate(status.endpoint, 40)}${errorMsg}`);
             }
           }

@@ -43,6 +43,18 @@ describe('checkTLSRPT', () => {
     expect(result.rua).toHaveLength(2);
   });
 
+  it('marks endpoints as unverified when verification is disabled', async () => {
+    vi.mocked(dns.resolveTxt).mockResolvedValue([
+      ['v=TLSRPTv1; rua=mailto:tlsrpt@example.com,https://report.example.com/tlsrpt']
+    ]);
+
+    const result = await checkTLSRPT('example.com');
+
+    expect(result.found).toBe(true);
+    expect(result.endpointStatus).toHaveLength(2);
+    expect(result.endpointStatus?.every(status => status.reachable === undefined)).toBe(true);
+  });
+
   it('warns on missing rua', async () => {
     vi.mocked(dns.resolveTxt).mockResolvedValue([
       ['v=TLSRPTv1']
