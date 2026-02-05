@@ -15,6 +15,15 @@ import type {
   Issue,
   Severity
 } from '../types.js';
+import {
+  GRADE_A_MIN,
+  GRADE_B_MIN,
+  GRADE_C_MIN,
+  GRADE_D_MIN,
+  SCORE_BONUS_MAX,
+  DKIM_STRONG_KEY_BITS,
+  DKIM_WEAK_KEY_BITS
+} from '../constants.js';
 
 // Penalty points for issues by severity
 const SEVERITY_PENALTIES: Record<Severity, number> = {
@@ -88,12 +97,12 @@ export function calculateGrade(
     
     // Check key strength (ed25519 is always considered strong)
     const hasStrongKey = dkim.selectors.some(s => 
-      s.keyType === 'ed25519' || (s.keyLength && s.keyLength >= 2048)
+      s.keyType === 'ed25519' || (s.keyLength && s.keyLength >= DKIM_STRONG_KEY_BITS)
     );
     if (hasStrongKey) {
       score += 10;
     } else {
-      const hasAnyKey = dkim.selectors.some(s => s.keyLength && s.keyLength >= 1024);
+      const hasAnyKey = dkim.selectors.some(s => s.keyLength && s.keyLength >= DKIM_WEAK_KEY_BITS);
       if (hasAnyKey) {
         score += 5;
       }
@@ -158,7 +167,7 @@ export function calculateGrade(
   }
 
   // Apply bonus (capped so total doesn't exceed 100)
-  score = Math.min(100, score + Math.min(bonus, 15));
+  score = Math.min(100, score + Math.min(bonus, SCORE_BONUS_MAX));
 
   // Apply penalties for critical/high severity issues (misconfigurations)
   const penalty = calculateIssuePenalty(spf, dkim, dmarc, mx, bimi, mtaSts, tlsRpt, arc);
@@ -167,15 +176,15 @@ export function calculateGrade(
   // Clamp score to 0-100
   score = Math.max(0, Math.min(100, score));
 
-  // Determine grade
+  // Determine grade based on score thresholds (from constants.ts)
   let grade: Grade;
-  if (score >= 90) {
+  if (score >= GRADE_A_MIN) {
     grade = 'A';
-  } else if (score >= 75) {
+  } else if (score >= GRADE_B_MIN) {
     grade = 'B';
-  } else if (score >= 50) {
+  } else if (score >= GRADE_C_MIN) {
     grade = 'C';
-  } else if (score >= 25) {
+  } else if (score >= GRADE_D_MIN) {
     grade = 'D';
   } else {
     grade = 'F';

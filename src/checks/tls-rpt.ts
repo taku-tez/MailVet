@@ -190,12 +190,25 @@ async function validateHttpsEndpoint(
 }
 
 async function verifyHttpsEndpoint(url: string, timeout: number): Promise<EndpointStatus> {
+  // Try HEAD first, fall back to GET if HEAD is not allowed (405/501)
+  const headResult = await tryHttpMethod(url, 'HEAD', timeout);
+  
+  // If HEAD returned 405 (Method Not Allowed) or 501 (Not Implemented), try GET
+  if (headResult.error?.includes('405') || headResult.error?.includes('501')) {
+    const getResult = await tryHttpMethod(url, 'GET', timeout);
+    return getResult;
+  }
+  
+  return headResult;
+}
+
+async function tryHttpMethod(url: string, method: 'HEAD' | 'GET', timeout: number): Promise<EndpointStatus> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
     
     const response = await fetch(url, {
-      method: 'HEAD',
+      method,
       signal: controller.signal,
       redirect: 'follow',
     });
@@ -203,7 +216,7 @@ async function verifyHttpsEndpoint(url: string, timeout: number): Promise<Endpoi
     clearTimeout(timeoutId);
     
     // Accept various status codes that indicate the endpoint is responsive
-    const acceptableStatus = [200, 201, 202, 204, 301, 302, 303, 307, 308, 400, 405];
+    const acceptableStatus = [200, 201, 202, 204, 301, 302, 303, 307, 308, 400];
     const reachable = acceptableStatus.includes(response.status) || 
                       (response.status >= 200 && response.status < 400);
     

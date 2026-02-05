@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import type { CloudSource } from '../types.js';
 
 const execFileAsync = promisify(execFile);
+const CLI_TIMEOUT_MS = 30000; // 30 seconds for CLI commands
 
 export interface AWSOptions {
   profile?: string;
@@ -93,7 +94,8 @@ export async function assumeRole(
     ];
 
     const { stdout } = await execFileAsync('aws', args, {
-      env: { ...process.env, ...envVars }
+      env: { ...process.env, ...envVars },
+      timeout: CLI_TIMEOUT_MS
     });
 
     const data = JSON.parse(stdout);
@@ -136,7 +138,8 @@ export async function getRoute53Domains(options: AWSOptions = {}): Promise<strin
     ];
 
     const { stdout } = await execFileAsync('aws', args, {
-      env: { ...process.env, ...envVars }
+      env: { ...process.env, ...envVars },
+      timeout: CLI_TIMEOUT_MS
     });
 
     const data = JSON.parse(stdout);
@@ -180,7 +183,8 @@ export async function getRoute53ZoneDomains(
     ];
 
     const { stdout } = await execFileAsync('aws', args, {
-      env: { ...process.env, ...envVars }
+      env: { ...process.env, ...envVars },
+      timeout: CLI_TIMEOUT_MS
     });
 
     const data = JSON.parse(stdout);

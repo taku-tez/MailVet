@@ -14,6 +14,7 @@ import { promisify } from 'node:util';
 import type { CloudSource } from '../types.js';
 
 const execFileAsync = promisify(execFile);
+const CLI_TIMEOUT_MS = 30000;
 
 export interface AzureOptions {
   subscription?: string;
@@ -50,13 +51,13 @@ async function ensureAzureAuth(options: AzureOptions): Promise<void> {
         '-p', options.clientSecret,
         '--tenant', options.tenantId,
         '--output', 'none'
-      ]);
+      ], { timeout: CLI_TIMEOUT_MS });
     } catch (err) {
       throw new Error(`Azure service principal login failed: ${(err as Error).message}`);
     }
   } else if (options.useManagedIdentity) {
     try {
-      await execFileAsync('az', ['login', '--identity', '--output', 'none']);
+      await execFileAsync('az', ['login', '--identity', '--output', 'none'], { timeout: CLI_TIMEOUT_MS });
     } catch (err) {
       throw new Error(`Azure managed identity login failed: ${(err as Error).message}`);
     }
@@ -84,7 +85,7 @@ export async function getAzureDNSDomains(options: AzureOptions = {}): Promise<st
 
   try {
     // List all DNS zones
-    const { stdout } = await execFileAsync('az', args);
+    const { stdout } = await execFileAsync('az', args, { timeout: CLI_TIMEOUT_MS });
 
     const zones: Array<{ 
       name: string; 
@@ -123,7 +124,7 @@ export async function listAzureSubscriptions(options: AzureOptions = {}): Promis
     const { stdout } = await execFileAsync('az', [
       'account', 'list',
       '--output', 'json'
-    ]);
+    ], { timeout: CLI_TIMEOUT_MS });
 
     const subscriptions: Array<{ id: string; name: string }> = JSON.parse(stdout) || [];
     return subscriptions.map(s => s.id);

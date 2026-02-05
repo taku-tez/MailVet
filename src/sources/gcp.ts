@@ -13,6 +13,7 @@ import { promisify } from 'node:util';
 import type { CloudSource } from '../types.js';
 
 const execFileAsync = promisify(execFile);
+const CLI_TIMEOUT_MS = 30000;
 
 export interface GCPOptions {
   project?: string;
@@ -69,7 +70,7 @@ export async function getCloudDNSDomains(options: GCPOptions = {}): Promise<stri
       'dns', 'managed-zones', 'list',
       ...args,
       '--format=json'
-    ], { env: { ...process.env, ...env } });
+    ], { env: { ...process.env, ...env }, timeout: CLI_TIMEOUT_MS });
 
     const zones: Array<{ 
       name: string; 
@@ -110,7 +111,7 @@ export async function listGCPProjects(options: GCPOptions = {}): Promise<string[
       'projects', 'list',
       ...args,
       '--format=value(projectId)'
-    ], { env: { ...process.env, ...env } });
+    ], { env: { ...process.env, ...env }, timeout: CLI_TIMEOUT_MS });
 
     return stdout.trim().split('\n').filter(Boolean);
   } catch {
@@ -133,7 +134,7 @@ export async function listOrgProjects(
       `--filter=parent.id=${orgId}`,
       ...args,
       '--format=value(projectId)'
-    ], { env: { ...process.env, ...env } });
+    ], { env: { ...process.env, ...env }, timeout: CLI_TIMEOUT_MS });
 
     return stdout.trim().split('\n').filter(Boolean);
   } catch (err) {

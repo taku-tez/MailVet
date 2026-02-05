@@ -80,19 +80,36 @@ const NO_DNSSEC_RESULT: DNSSECResult = {
   }]
 };
 
-export async function checkDNSSEC(domain: string): Promise<DNSSECResult> {
+export interface DNSSECOptions {
+  resolver?: string; // Custom DNS resolver (e.g., '8.8.8.8')
+}
+
+export async function checkDNSSEC(domain: string, options: DNSSECOptions = {}): Promise<DNSSECResult> {
   const issues: Issue[] = [];
 
   try {
     // Check for DS records at parent zone
-    const dsRecords = await fetchDSRecords(domain);
-    
-    // Check for DNSKEY records
-    const dnskeyRecords = await fetchDNSKEYRecords(domain);
+    const dsResult = await fetchDSRecords(domain, options.resolver);
+    const dnskeyResult = await fetchDNSKEYRecords(domain, options.resolver);
+
+    // Report fetch errors as issues
+    if (dsResult.error && dnskeyResult.error) {
+      issues.push({
+        severity: 'low',
+        message: dsResult.error,
+        recommendation: 'Install dig (bind-utils/dnsutils) for DNSSEC validation'
+      });
+    }
+
+    const dsRecords = dsResult.records;
+    const dnskeyRecords = dnskeyResult.records;
 
     // If neither DS nor DNSKEY found, DNSSEC is not enabled
     if (dsRecords.length === 0 && dnskeyRecords.length === 0) {
-      return NO_DNSSEC_RESULT;
+      return {
+        ...NO_DNSSEC_RESULT,
+        issues: [...NO_DNSSEC_RESULT.issues, ...issues]
+      };
     }
 
     // Parse DS records
@@ -198,33 +215,79 @@ export async function checkDNSSEC(domain: string): Promise<DNSSECResult> {
   }
 }
 
-async function fetchDSRecords(domain: string): Promise<string[]> {
-  try {
-    // Use dig command for DS records (Node dns doesn't support DS directly)
-    const { execFile } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const execFileAsync = promisify(execFile);
-    
-    const { stdout } = await execFileAsync('dig', ['+short', 'DS', domain, '@8.8.8.8'], { timeout: 5000 });
-    
-    return stdout.trim().split('\n').filter(line => line.length > 0);
-  } catch {
-    return [];
-  }
+interface DNSFetchResult {
+  records: string[];
+  error?: string;
 }
 
-async function fetchDNSKEYRecords(domain: string): Promise<string[]> {
+async function fetchDSRecords(domain: string, resolver?: string): Promise<DNSFetchResult> {
+  const dnsServer = resolver || undefined; // Use system default if not specified
+  
   try {
-    // Use dig command for DNSKEY records
-    const { execFile } = await import('node:child_process');
-    const { promisify } = await import('node:util');
-    const execFileAsync = promisify(execFile);
-    
-    const { stdout } = await execFileAsync('dig', ['+short', 'DNSKEY', domain, '@8.8.8.8'], { timeout: 5000 });
-    
-    return stdout.trim().split('\n').filter(line => line.length > 0);
+    // Try dig first (most reliable for DNSSEC records)
+    const result = await fetchWithDig('DS', domain, dnsServer);
+    if (result.records.length > 0 || !result.error) {
+      return result;
+    }
   } catch {
-    return [];
+    // dig not available, continue to fallback
+  }
+
+  // Return empty with info about limitation
+  return {
+    records: [],
+    error: 'dig command not available - install bind-utils/dnsutils for full DNSSEC support'
+  };
+}
+
+async function fetchDNSKEYRecords(domain: string, resolver?: string): Promise<DNSFetchResult> {
+  const dnsServer = resolver || undefined;
+  
+  try {
+    const result = await fetchWithDig('DNSKEY', domain, dnsServer);
+    if (result.records.length > 0 || !result.error) {
+      return result;
+    }
+  } catch {
+    // dig not available
+  }
+
+  return {
+    records: [],
+    error: 'dig command not available - install bind-utils/dnsutils for full DNSSEC support'
+  };
+}
+
+async function fetchWithDig(rrtype: string, domain: string, dnsServer?: string): Promise<DNSFetchResult> {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const execFileAsync = promisify(execFile);
+  
+  const args = ['+short', rrtype, domain];
+  if (dnsServer) {
+    args.push(`@${dnsServer}`);
+  }
+  
+  try {
+    const { stdout, stderr } = await execFileAsync('dig', args, { timeout: 10000 });
+    
+    if (stderr && stderr.includes('connection timed out')) {
+      return { records: [], error: 'DNS query timed out' };
+    }
+    
+    const records = stdout.trim().split('\n').filter(line => line.length > 0 && !line.startsWith(';'));
+    return { records };
+  } catch (err) {
+    const error = err as Error & { code?: string };
+    
+    if (error.code === 'ENOENT') {
+      throw new Error('dig not found');
+    }
+    if (error.message?.includes('ETIMEDOUT') || error.message?.includes('killed')) {
+      return { records: [], error: 'DNS query timed out' };
+    }
+    
+    return { records: [], error: error.message };
   }
 }
 

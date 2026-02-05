@@ -2,22 +2,17 @@
  * Domain manipulation utilities
  */
 
-// Use Node.js built-in punycode (deprecated but still available)
-import punycode from 'node:punycode';
+import { domainToASCII } from 'node:url';
 
 /**
  * Convert IDN (Internationalized Domain Name) to ASCII (Punycode)
+ * Uses Node.js url.domainToASCII which is the modern, non-deprecated API
  */
 export function toASCII(domain: string): string {
   try {
-    // Handle each label separately
-    return domain.split('.').map(label => {
-      // Check if label contains non-ASCII characters
-      if (/[^\x00-\x7F]/.test(label)) {
-        return 'xn--' + punycode.encode(label);
-      }
-      return label;
-    }).join('.');
+    const ascii = domainToASCII(domain);
+    // domainToASCII returns empty string on invalid input
+    return ascii || domain;
   } catch {
     return domain; // Return as-is if conversion fails
   }
