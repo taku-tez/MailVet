@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import dns from 'node:dns/promises';
+import { cachedResolveTxt } from '../utils/dns.js';
 import { checkBIMI } from './bimi.js';
 
-vi.mock('node:dns/promises');
+vi.mock('../utils/dns.js', async () => {
+  const actual = await vi.importActual<typeof import('../utils/dns.js')>('../utils/dns.js');
+  return {
+    ...actual,
+    cachedResolveTxt: vi.fn()
+  };
+});
 
 describe('checkBIMI', () => {
   beforeEach(() => {
@@ -10,8 +16,8 @@ describe('checkBIMI', () => {
   });
 
   it('detects valid BIMI record with logo and VMC', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=BIMI1; l=https://example.com/logo.svg; a=https://example.com/vmc.pem'
     ]);
 
     const result = await checkBIMI('example.com');
@@ -22,8 +28,8 @@ describe('checkBIMI', () => {
   });
 
   it('detects BIMI without VMC certificate', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=BIMI1; l=https://example.com/logo.svg']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=BIMI1; l=https://example.com/logo.svg'
     ]);
 
     const result = await checkBIMI('example.com');
@@ -35,8 +41,8 @@ describe('checkBIMI', () => {
   });
 
   it('warns on non-HTTPS logo URL', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=BIMI1; l=http://example.com/logo.svg']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=BIMI1; l=http://example.com/logo.svg'
     ]);
 
     const result = await checkBIMI('example.com');
@@ -46,8 +52,8 @@ describe('checkBIMI', () => {
   });
 
   it('warns on non-SVG logo', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=BIMI1; l=https://example.com/logo.png']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=BIMI1; l=https://example.com/logo.png'
     ]);
 
     const result = await checkBIMI('example.com');
@@ -57,9 +63,7 @@ describe('checkBIMI', () => {
   });
 
   it('reports no BIMI found', async () => {
-    const error = new Error('ENODATA') as NodeJS.ErrnoException;
-    error.code = 'ENODATA';
-    vi.mocked(dns.resolveTxt).mockRejectedValue(error);
+    vi.mocked(cachedResolveTxt).mockResolvedValue([]);
 
     const result = await checkBIMI('example.com');
     
@@ -68,8 +72,8 @@ describe('checkBIMI', () => {
   });
 
   it('handles missing logo URL', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=BIMI1; a=https://example.com/vmc.pem']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=BIMI1; a=https://example.com/vmc.pem'
     ]);
 
     const result = await checkBIMI('example.com');

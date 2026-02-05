@@ -5,152 +5,137 @@
 
 import crypto from 'node:crypto';
 import type { SPFResult, Issue } from '../types.js';
-import { dns, isDNSNotFoundError, resolveTxtRecords, filterRecordsByPrefix } from '../utils/dns.js';
-import { SPF_MAX_DNS_LOOKUPS, SPF_MAX_RECURSION_DEPTH, DNS_PREFIX } from '../constants.js';
+import { cachedResolveTxt } from '../utils/dns.js';
+import { SPF_MAX_DNS_LOOKUPS, SPF_MAX_RECURSION_DEPTH } from '../constants.js';
 
 export async function checkSPF(domain: string): Promise<SPFResult> {
   const issues: Issue[] = [];
   
-  try {
-    const txtRecords = await dns.resolveTxt(domain);
-    const spfRecords = txtRecords
-      .map(r => r.join(''))
-      .filter(r => r.toLowerCase().startsWith('v=spf1'));
+  const txtRecords = await cachedResolveTxt(domain);
+  const spfRecords = txtRecords
+    .filter(r => r.toLowerCase().startsWith('v=spf1'));
 
-    if (spfRecords.length === 0) {
-      return {
-        found: false,
-        issues: [{
-          severity: 'critical',
-          message: 'No SPF record found',
-          recommendation: 'Add an SPF record to prevent email spoofing'
-        }]
-      };
-    }
-
-    if (spfRecords.length > 1) {
-      issues.push({
-        severity: 'high',
-        message: `Multiple SPF records found (${spfRecords.length})`,
-        recommendation: 'Only one SPF record should exist per domain'
-      });
-    }
-
-    const record = spfRecords[0];
-    const mechanism = extractMechanism(record);
-    const includes = extractIncludes(record);
-    
-    // RFC 7208 compliant recursive DNS lookup counting
-    const lookupResult = await countDNSLookupsRecursive(domain, record, new Set(), 0);
-    const lookupCount = lookupResult.count;
-    
-    if (lookupResult.loopDetected) {
-      issues.push({
-        severity: 'high',
-        message: 'SPF record contains circular reference',
-        recommendation: 'Remove circular include/redirect references'
-      });
-    }
-    if (lookupResult.depthLimitReached) {
-      issues.push({
-        severity: 'high',
-        message: 'SPF record analysis exceeded recursion depth limit',
-        recommendation: 'Simplify include/redirect chains to avoid excessive nesting'
-      });
-    }
-
-    const failedIncludes = Array.from(new Set(lookupResult.failedIncludes));
-    for (const failedInclude of failedIncludes) {
-      issues.push({
-        severity: 'high',
-        message: `SPF include target not found: ${failedInclude}`,
-        recommendation: 'Ensure the include domain publishes a valid SPF record'
-      });
-    }
-
-    const failedRedirects = Array.from(new Set(lookupResult.failedRedirects));
-    for (const failedRedirect of failedRedirects) {
-      issues.push({
-        severity: 'high',
-        message: `SPF redirect target not found: ${failedRedirect}`,
-        recommendation: 'Ensure the redirect domain publishes a valid SPF record'
-      });
-    }
-
-    // Check mechanism strength
-    if (mechanism === '+all') {
-      issues.push({
-        severity: 'critical',
-        message: 'SPF uses +all (pass all) - effectively no protection',
-        recommendation: 'Change to -all (hardfail) for maximum protection'
-      });
-    } else if (mechanism === '?all') {
-      issues.push({
-        severity: 'high',
-        message: 'SPF uses ?all (neutral) - weak protection',
-        recommendation: 'Change to -all (hardfail) for maximum protection'
-      });
-    } else if (mechanism === '~all') {
-      issues.push({
-        severity: 'medium',
-        message: 'SPF uses ~all (softfail) - consider using hardfail',
-        recommendation: 'Change to -all (hardfail) when ready for stricter enforcement'
-      });
-    } else if (mechanism === '-all') {
-      // Good!
-    } else {
-      issues.push({
-        severity: 'high',
-        message: 'SPF record has no all mechanism',
-        recommendation: 'Add -all at the end of your SPF record'
-      });
-    }
-
-    // Check DNS lookup count
-    if (lookupCount > SPF_MAX_DNS_LOOKUPS) {
-      issues.push({
-        severity: 'high',
-        message: `SPF record exceeds DNS lookup limit (${lookupCount}/${SPF_MAX_DNS_LOOKUPS})`,
-        recommendation: 'Reduce the number of include/redirect mechanisms or flatten the SPF record'
-      });
-    } else if (lookupCount > 7) {
-      issues.push({
-        severity: 'medium',
-        message: `SPF record is close to DNS lookup limit (${lookupCount}/${SPF_MAX_DNS_LOOKUPS})`,
-        recommendation: 'Consider flattening SPF record to avoid future issues'
-      });
-    }
-
-    // Check for deprecated ptr mechanism (match ptr at word boundary)
-    if (/\bptr(:|\/|\s|$)/i.test(record)) {
-      issues.push({
-        severity: 'medium',
-        message: 'SPF record uses deprecated ptr mechanism',
-        recommendation: 'Replace ptr with explicit IP ranges or include statements'
-      });
-    }
-
+  if (spfRecords.length === 0) {
     return {
-      found: true,
-      record,
-      mechanism,
-      lookupCount,
-      includes,
-      issues
+      found: false,
+      issues: [{
+        severity: 'critical',
+        message: 'No SPF record found',
+        recommendation: 'Add an SPF record to prevent email spoofing'
+      }]
     };
-  } catch (err) {
-    if (isDNSNotFoundError(err)) {
-      return {
-        found: false,
-        issues: [{
-          severity: 'critical',
-          message: 'No SPF record found',
-          recommendation: 'Add an SPF record to prevent email spoofing'
-        }]
-      };
-    }
-    throw err;
   }
+
+  if (spfRecords.length > 1) {
+    issues.push({
+      severity: 'high',
+      message: `Multiple SPF records found (${spfRecords.length})`,
+      recommendation: 'Only one SPF record should exist per domain'
+    });
+  }
+
+  const record = spfRecords[0];
+  const mechanism = extractMechanism(record);
+  const includes = extractIncludes(record);
+  
+  // RFC 7208 compliant recursive DNS lookup counting
+  const lookupResult = await countDNSLookupsRecursive(domain, record, new Set(), 0);
+  const lookupCount = lookupResult.count;
+  
+  if (lookupResult.loopDetected) {
+    issues.push({
+      severity: 'high',
+      message: 'SPF record contains circular reference',
+      recommendation: 'Remove circular include/redirect references'
+    });
+  }
+  if (lookupResult.depthLimitReached) {
+    issues.push({
+      severity: 'high',
+      message: 'SPF record analysis exceeded recursion depth limit',
+      recommendation: 'Simplify include/redirect chains to avoid excessive nesting'
+    });
+  }
+
+  const failedIncludes = Array.from(new Set(lookupResult.failedIncludes));
+  for (const failedInclude of failedIncludes) {
+    issues.push({
+      severity: 'high',
+      message: `SPF include target not found: ${failedInclude}`,
+      recommendation: 'Ensure the include domain publishes a valid SPF record'
+    });
+  }
+
+  const failedRedirects = Array.from(new Set(lookupResult.failedRedirects));
+  for (const failedRedirect of failedRedirects) {
+    issues.push({
+      severity: 'high',
+      message: `SPF redirect target not found: ${failedRedirect}`,
+      recommendation: 'Ensure the redirect domain publishes a valid SPF record'
+    });
+  }
+
+  // Check mechanism strength
+  if (mechanism === '+all') {
+    issues.push({
+      severity: 'critical',
+      message: 'SPF uses +all (pass all) - effectively no protection',
+      recommendation: 'Change to -all (hardfail) for maximum protection'
+    });
+  } else if (mechanism === '?all') {
+    issues.push({
+      severity: 'high',
+      message: 'SPF uses ?all (neutral) - weak protection',
+      recommendation: 'Change to -all (hardfail) for maximum protection'
+    });
+  } else if (mechanism === '~all') {
+    issues.push({
+      severity: 'medium',
+      message: 'SPF uses ~all (softfail) - consider using hardfail',
+      recommendation: 'Change to -all (hardfail) when ready for stricter enforcement'
+    });
+  } else if (mechanism === '-all') {
+    // Good!
+  } else {
+    issues.push({
+      severity: 'high',
+      message: 'SPF record has no all mechanism',
+      recommendation: 'Add -all at the end of your SPF record'
+    });
+  }
+
+  // Check DNS lookup count
+  if (lookupCount > SPF_MAX_DNS_LOOKUPS) {
+    issues.push({
+      severity: 'high',
+      message: `SPF record exceeds DNS lookup limit (${lookupCount}/${SPF_MAX_DNS_LOOKUPS})`,
+      recommendation: 'Reduce the number of include/redirect mechanisms or flatten the SPF record'
+    });
+  } else if (lookupCount > 7) {
+    issues.push({
+      severity: 'medium',
+      message: `SPF record is close to DNS lookup limit (${lookupCount}/${SPF_MAX_DNS_LOOKUPS})`,
+      recommendation: 'Consider flattening SPF record to avoid future issues'
+    });
+  }
+
+  // Check for deprecated ptr mechanism (match ptr at word boundary)
+  if (/\bptr(:|\/|\s|$)/i.test(record)) {
+    issues.push({
+      severity: 'medium',
+      message: 'SPF record uses deprecated ptr mechanism',
+      recommendation: 'Replace ptr with explicit IP ranges or include statements'
+    });
+  }
+
+  return {
+    found: true,
+    record,
+    mechanism,
+    lookupCount,
+    includes,
+    issues
+  };
 }
 
 function extractMechanism(record: string): string | undefined {
@@ -258,10 +243,8 @@ async function countDNSLookupsRecursive(
     
     const includeDomain = includeMatch[1];
     try {
-      const includeTxt = await dns.resolveTxt(includeDomain);
-      const includeSPF = includeTxt
-        .map(r => r.join(''))
-        .find(r => r.toLowerCase().startsWith('v=spf1'));
+      const includeTxt = await cachedResolveTxt(includeDomain);
+      const includeSPF = includeTxt.find(r => r.toLowerCase().startsWith('v=spf1'));
       
       if (includeSPF) {
         const recursiveResult = await countDNSLookupsRecursive(
@@ -292,10 +275,8 @@ async function countDNSLookupsRecursive(
     
     const redirectDomain = redirectMatch[1];
     try {
-      const redirectTxt = await dns.resolveTxt(redirectDomain);
-      const redirectSPF = redirectTxt
-        .map(r => r.join(''))
-        .find(r => r.toLowerCase().startsWith('v=spf1'));
+      const redirectTxt = await cachedResolveTxt(redirectDomain);
+      const redirectSPF = redirectTxt.find(r => r.toLowerCase().startsWith('v=spf1'));
       
       if (redirectSPF) {
         const recursiveResult = await countDNSLookupsRecursive(

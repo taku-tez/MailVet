@@ -7,6 +7,7 @@ import { calculateGrade, generateRecommendations } from './scorer.js';
 import type { DomainResult, ScanOptions, SPFResult, DKIMResult, DMARCResult, MXResult, BIMIResult, MTASTSResult, TLSRPTResult, DNSSECResult } from '../types.js';
 import { COMMON_DKIM_SELECTORS, normalizeDomain } from '../types.js';
 import { isValidDomain } from '../utils/domain.js';
+import { clearDnsCache } from '../utils/dns.js';
 
 /**
  * Create a failed result for a check that errored
@@ -216,6 +217,7 @@ export async function analyzeMultiple(
   // Process in batches
   for (let i = 0; i < domains.length; i += concurrency) {
     const batch = domains.slice(i, i + concurrency);
+    clearDnsCache();
     const batchResults = await Promise.all(
       batch.map(domain => analyzeDomain(domain, options))
     );

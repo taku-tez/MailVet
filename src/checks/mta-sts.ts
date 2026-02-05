@@ -7,7 +7,7 @@
  */
 
 import type { MTASTSResult, Issue } from '../types.js';
-import { isDNSNotFoundError, resolveTxtRecords, filterRecordsByPrefix } from '../utils/dns.js';
+import { cachedResolveTxt, filterRecordsByPrefix } from '../utils/dns.js';
 import { extractTag } from '../utils/parser.js';
 import { DNS_PREFIX, DNS_SUBDOMAIN, DEFAULT_HTTP_TIMEOUT_MS } from '../constants.js';
 
@@ -37,68 +37,61 @@ export async function checkMTASTS(domain: string, options: MTASTSOptions = {}): 
   const stsDomain = `${DNS_SUBDOMAIN.MTA_STS}.${domain}`;
   const httpTimeout = options.timeout || DEFAULT_HTTP_TIMEOUT_MS;
 
-  try {
-    const txtRecords = await resolveTxtRecords(stsDomain);
-    const stsRecords = filterRecordsByPrefix(txtRecords, DNS_PREFIX.MTA_STS);
+  const txtRecords = await cachedResolveTxt(stsDomain);
+  const stsRecords = filterRecordsByPrefix(txtRecords, DNS_PREFIX.MTA_STS);
 
-    if (stsRecords.length === 0) {
-      return NO_MTA_STS_RESULT;
-    }
-
-    const dnsRecord = stsRecords[0];
-    const version = extractTag(dnsRecord, 'v');
-    const id = extractTag(dnsRecord, 'id');
-
-    // Validate version tag (must be STSv1)
-    if (!version) {
-      issues.push({
-        severity: 'high',
-        message: 'MTA-STS record missing version tag (v=)',
-        recommendation: 'Add v=STSv1 at the start of the MTA-STS record'
-      });
-    } else if (version.toLowerCase() !== 'stsv1') {
-      issues.push({
-        severity: 'medium',
-        message: `Unexpected MTA-STS version: "${version}" (expected STSv1)`,
-        recommendation: 'Use v=STSv1 for the version tag'
-      });
-    }
-
-    if (!id) {
-      issues.push({
-        severity: 'high',
-        message: 'MTA-STS record missing id tag',
-        recommendation: 'Add id= tag to enable policy updates'
-      });
-    }
-
-    // Try to fetch the policy file
-    const policyResult = await fetchMTASTSPolicy(domain, httpTimeout);
-    let policy: MTASTSPolicy | undefined;
-    
-    if (!policyResult.ok) {
-      addPolicyFetchError(policyResult, domain, httpTimeout, issues);
-    } else {
-      policy = policyResult.policy;
-      if (policy) {
-        validatePolicy(policy, issues);
-      }
-    }
-
-    return {
-      found: true,
-      dnsRecord,
-      version,
-      id,
-      policy,
-      issues
-    };
-  } catch (err) {
-    if (isDNSNotFoundError(err)) {
-      return NO_MTA_STS_RESULT;
-    }
-    throw err;
+  if (stsRecords.length === 0) {
+    return NO_MTA_STS_RESULT;
   }
+
+  const dnsRecord = stsRecords[0];
+  const version = extractTag(dnsRecord, 'v');
+  const id = extractTag(dnsRecord, 'id');
+
+  // Validate version tag (must be STSv1)
+  if (!version) {
+    issues.push({
+      severity: 'high',
+      message: 'MTA-STS record missing version tag (v=)',
+      recommendation: 'Add v=STSv1 at the start of the MTA-STS record'
+    });
+  } else if (version.toLowerCase() !== 'stsv1') {
+    issues.push({
+      severity: 'medium',
+      message: `Unexpected MTA-STS version: "${version}" (expected STSv1)`,
+      recommendation: 'Use v=STSv1 for the version tag'
+    });
+  }
+
+  if (!id) {
+    issues.push({
+      severity: 'high',
+      message: 'MTA-STS record missing id tag',
+      recommendation: 'Add id= tag to enable policy updates'
+    });
+  }
+
+  // Try to fetch the policy file
+  const policyResult = await fetchMTASTSPolicy(domain, httpTimeout);
+  let policy: MTASTSPolicy | undefined;
+  
+  if (!policyResult.ok) {
+    addPolicyFetchError(policyResult, domain, httpTimeout, issues);
+  } else {
+    policy = policyResult.policy;
+    if (policy) {
+      validatePolicy(policy, issues);
+    }
+  }
+
+  return {
+    found: true,
+    dnsRecord,
+    version,
+    id,
+    policy,
+    issues
+  };
 }
 
 interface PolicyFetchResult {

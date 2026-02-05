@@ -6,7 +6,7 @@
  */
 
 import type { TLSRPTResult, Issue, EndpointStatus } from '../types.js';
-import { dns, isDNSNotFoundError, resolveTxtRecords, filterRecordsByPrefix } from '../utils/dns.js';
+import { dns, cachedResolveTxt, filterRecordsByPrefix } from '../utils/dns.js';
 import { extractTag, extractTagValues, isValidEmail, parseMailtoUri } from '../utils/parser.js';
 import { DNS_PREFIX, DNS_SUBDOMAIN, DEFAULT_HTTP_TIMEOUT_MS } from '../constants.js';
 
@@ -31,67 +31,60 @@ export async function checkTLSRPT(
   const issues: Issue[] = [];
   const tlsrptDomain = `${DNS_SUBDOMAIN.TLS_RPT}.${domain}`;
 
-  try {
-    const txtRecords = await resolveTxtRecords(tlsrptDomain);
-    const tlsrptRecords = filterRecordsByPrefix(txtRecords, DNS_PREFIX.TLS_RPT);
+  const txtRecords = await cachedResolveTxt(tlsrptDomain);
+  const tlsrptRecords = filterRecordsByPrefix(txtRecords, DNS_PREFIX.TLS_RPT);
 
-    if (tlsrptRecords.length === 0) {
-      return NO_TLS_RPT_RESULT;
-    }
-
-    if (tlsrptRecords.length > 1) {
-      issues.push({
-        severity: 'medium',
-        message: `Multiple TLS-RPT records found (${tlsrptRecords.length})`,
-        recommendation: 'Only one TLS-RPT record should exist'
-      });
-    }
-
-    const record = tlsrptRecords[0];
-    const version = extractTag(record, 'v');
-    const rua = extractTagValues(record, 'rua');
-    const endpointStatus: EndpointStatus[] = [];
-
-    // Validate version tag (RFC 8460)
-    if (!version) {
-      issues.push({
-        severity: 'high',
-        message: 'TLS-RPT record missing version tag (v=)',
-        recommendation: 'Add v=TLSRPTv1 at the start of the TLS-RPT record'
-      });
-    } else if (version.toLowerCase() !== 'tlsrptv1') {
-      issues.push({
-        severity: 'medium',
-        message: `Unexpected TLS-RPT version: "${version}" (expected TLSRPTv1)`,
-        recommendation: 'Use v=TLSRPTv1 for the version tag'
-      });
-    }
-
-    // Validate reporting addresses
-    if (rua.length === 0) {
-      issues.push({
-        severity: 'high',
-        message: 'TLS-RPT record has no reporting addresses (rua=)',
-        recommendation: 'Add rua= tag with mailto: or https: reporting endpoints'
-      });
-    } else {
-      await validateEndpoints(rua, options, issues, endpointStatus);
-    }
-
-    return {
-      found: true,
-      record,
-      version,
-      rua,
-      endpointStatus: endpointStatus.length > 0 ? endpointStatus : undefined,
-      issues
-    };
-  } catch (err) {
-    if (isDNSNotFoundError(err)) {
-      return NO_TLS_RPT_RESULT;
-    }
-    throw err;
+  if (tlsrptRecords.length === 0) {
+    return NO_TLS_RPT_RESULT;
   }
+
+  if (tlsrptRecords.length > 1) {
+    issues.push({
+      severity: 'medium',
+      message: `Multiple TLS-RPT records found (${tlsrptRecords.length})`,
+      recommendation: 'Only one TLS-RPT record should exist'
+    });
+  }
+
+  const record = tlsrptRecords[0];
+  const version = extractTag(record, 'v');
+  const rua = extractTagValues(record, 'rua');
+  const endpointStatus: EndpointStatus[] = [];
+
+  // Validate version tag (RFC 8460)
+  if (!version) {
+    issues.push({
+      severity: 'high',
+      message: 'TLS-RPT record missing version tag (v=)',
+      recommendation: 'Add v=TLSRPTv1 at the start of the TLS-RPT record'
+    });
+  } else if (version.toLowerCase() !== 'tlsrptv1') {
+    issues.push({
+      severity: 'medium',
+      message: `Unexpected TLS-RPT version: "${version}" (expected TLSRPTv1)`,
+      recommendation: 'Use v=TLSRPTv1 for the version tag'
+    });
+  }
+
+  // Validate reporting addresses
+  if (rua.length === 0) {
+    issues.push({
+      severity: 'high',
+      message: 'TLS-RPT record has no reporting addresses (rua=)',
+      recommendation: 'Add rua= tag with mailto: or https: reporting endpoints'
+    });
+  } else {
+    await validateEndpoints(rua, options, issues, endpointStatus);
+  }
+
+  return {
+    found: true,
+    record,
+    version,
+    rua,
+    endpointStatus: endpointStatus.length > 0 ? endpointStatus : undefined,
+    issues
+  };
 }
 
 async function validateEndpoints(

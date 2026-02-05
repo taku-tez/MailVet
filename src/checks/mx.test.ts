@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import dns from 'node:dns/promises';
+import { cachedResolveMx } from '../utils/dns.js';
 import { checkMX } from './mx.js';
 
-vi.mock('node:dns/promises');
+vi.mock('../utils/dns.js', async () => {
+  const actual = await vi.importActual<typeof import('../utils/dns.js')>('../utils/dns.js');
+  return {
+    ...actual,
+    cachedResolveMx: vi.fn()
+  };
+});
 
 describe('checkMX', () => {
   beforeEach(() => {
@@ -10,7 +16,7 @@ describe('checkMX', () => {
   });
 
   it('detects valid MX records', async () => {
-    vi.mocked(dns.resolveMx).mockResolvedValue([
+    vi.mocked(cachedResolveMx).mockResolvedValue([
       { exchange: 'mx1.example.com', priority: 10 },
       { exchange: 'mx2.example.com', priority: 20 },
     ]);
@@ -24,7 +30,7 @@ describe('checkMX', () => {
   });
 
   it('identifies Google Workspace', async () => {
-    vi.mocked(dns.resolveMx).mockResolvedValue([
+    vi.mocked(cachedResolveMx).mockResolvedValue([
       { exchange: 'aspmx.l.google.com', priority: 1 },
       { exchange: 'alt1.aspmx.l.google.com', priority: 5 },
     ]);
@@ -36,7 +42,7 @@ describe('checkMX', () => {
   });
 
   it('identifies Microsoft 365', async () => {
-    vi.mocked(dns.resolveMx).mockResolvedValue([
+    vi.mocked(cachedResolveMx).mockResolvedValue([
       { exchange: 'example-com.mail.protection.outlook.com', priority: 10 },
     ]);
 
@@ -47,7 +53,7 @@ describe('checkMX', () => {
   });
 
   it('warns on single MX record', async () => {
-    vi.mocked(dns.resolveMx).mockResolvedValue([
+    vi.mocked(cachedResolveMx).mockResolvedValue([
       { exchange: 'mail.example.com', priority: 10 },
     ]);
 
@@ -58,7 +64,7 @@ describe('checkMX', () => {
   });
 
   it('notes same priority for all MX records', async () => {
-    vi.mocked(dns.resolveMx).mockResolvedValue([
+    vi.mocked(cachedResolveMx).mockResolvedValue([
       { exchange: 'mx1.example.com', priority: 10 },
       { exchange: 'mx2.example.com', priority: 10 },
     ]);
@@ -70,7 +76,7 @@ describe('checkMX', () => {
   });
 
   it('detects null MX record', async () => {
-    vi.mocked(dns.resolveMx).mockResolvedValue([
+    vi.mocked(cachedResolveMx).mockResolvedValue([
       { exchange: '.', priority: 0 },
     ]);
 
@@ -81,9 +87,7 @@ describe('checkMX', () => {
   });
 
   it('reports no MX found', async () => {
-    vi.mocked(dns.resolveMx).mockRejectedValue(
-      Object.assign(new Error('ENODATA'), { code: 'ENODATA' })
-    );
+    vi.mocked(cachedResolveMx).mockResolvedValue([]);
 
     const result = await checkMX('example.com');
     
@@ -92,7 +96,7 @@ describe('checkMX', () => {
   });
 
   it('sorts MX records by priority', async () => {
-    vi.mocked(dns.resolveMx).mockResolvedValue([
+    vi.mocked(cachedResolveMx).mockResolvedValue([
       { exchange: 'mx3.example.com', priority: 30 },
       { exchange: 'mx1.example.com', priority: 10 },
       { exchange: 'mx2.example.com', priority: 20 },

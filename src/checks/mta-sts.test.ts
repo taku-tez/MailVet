@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import dns from 'node:dns/promises';
+import { cachedResolveTxt } from '../utils/dns.js';
 import { checkMTASTS } from './mta-sts.js';
 
-vi.mock('node:dns/promises');
+vi.mock('../utils/dns.js', async () => {
+  const actual = await vi.importActual<typeof import('../utils/dns.js')>('../utils/dns.js');
+  return {
+    ...actual,
+    cachedResolveTxt: vi.fn()
+  };
+});
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -14,8 +20,8 @@ describe('checkMTASTS', () => {
   });
 
   it('detects valid MTA-STS with enforce policy', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=STSv1; id=20240101']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=STSv1; id=20240101'
     ]);
     
     mockFetch.mockResolvedValue({
@@ -35,8 +41,8 @@ max_age: 604800`)
   });
 
   it('warns on testing mode', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=STSv1; id=20240101']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=STSv1; id=20240101'
     ]);
     
     mockFetch.mockResolvedValue({
@@ -55,8 +61,8 @@ max_age: 604800`)
   });
 
   it('critical issue on none mode', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=STSv1; id=20240101']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=STSv1; id=20240101'
     ]);
     
     mockFetch.mockResolvedValue({
@@ -73,8 +79,8 @@ max_age: 86400`)
   });
 
   it('warns on short max_age', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=STSv1; id=20240101']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=STSv1; id=20240101'
     ]);
     
     mockFetch.mockResolvedValue({
@@ -92,9 +98,7 @@ max_age: 3600`)
   });
 
   it('reports no MTA-STS found', async () => {
-    const error = new Error('ENODATA') as NodeJS.ErrnoException;
-    error.code = 'ENODATA';
-    vi.mocked(dns.resolveTxt).mockRejectedValue(error);
+    vi.mocked(cachedResolveTxt).mockResolvedValue([]);
 
     const result = await checkMTASTS('example.com');
     
@@ -103,8 +107,8 @@ max_age: 3600`)
   });
 
   it('handles policy fetch failure', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=STSv1; id=20240101']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=STSv1; id=20240101'
     ]);
     
     mockFetch.mockResolvedValue({
@@ -120,8 +124,8 @@ max_age: 3600`)
   });
 
   it('warns on missing id tag', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=STSv1']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=STSv1'
     ]);
     
     mockFetch.mockResolvedValue({

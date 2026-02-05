@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import dns from 'node:dns/promises';
+import { cachedResolveTxt } from '../utils/dns.js';
 import { checkTLSRPT } from './tls-rpt.js';
 
-vi.mock('node:dns/promises');
+vi.mock('../utils/dns.js', async () => {
+  const actual = await vi.importActual<typeof import('../utils/dns.js')>('../utils/dns.js');
+  return {
+    ...actual,
+    cachedResolveTxt: vi.fn()
+  };
+});
 
 describe('checkTLSRPT', () => {
   beforeEach(() => {
@@ -10,8 +16,8 @@ describe('checkTLSRPT', () => {
   });
 
   it('detects valid TLS-RPT with mailto', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=TLSRPTv1; rua=mailto:tlsrpt@example.com']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=TLSRPTv1; rua=mailto:tlsrpt@example.com'
     ]);
 
     const result = await checkTLSRPT('example.com');
@@ -22,8 +28,8 @@ describe('checkTLSRPT', () => {
   });
 
   it('detects TLS-RPT with https endpoint', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=TLSRPTv1; rua=https://report.example.com/tlsrpt']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=TLSRPTv1; rua=https://report.example.com/tlsrpt'
     ]);
 
     const result = await checkTLSRPT('example.com');
@@ -33,8 +39,8 @@ describe('checkTLSRPT', () => {
   });
 
   it('detects multiple reporting addresses', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=TLSRPTv1; rua=mailto:tlsrpt@example.com,https://report.example.com/tlsrpt']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=TLSRPTv1; rua=mailto:tlsrpt@example.com,https://report.example.com/tlsrpt'
     ]);
 
     const result = await checkTLSRPT('example.com');
@@ -44,8 +50,8 @@ describe('checkTLSRPT', () => {
   });
 
   it('marks endpoints as unverified when verification is disabled', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=TLSRPTv1; rua=mailto:tlsrpt@example.com,https://report.example.com/tlsrpt']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=TLSRPTv1; rua=mailto:tlsrpt@example.com,https://report.example.com/tlsrpt'
     ]);
 
     const result = await checkTLSRPT('example.com');
@@ -56,8 +62,8 @@ describe('checkTLSRPT', () => {
   });
 
   it('warns on missing rua', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=TLSRPTv1']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=TLSRPTv1'
     ]);
 
     const result = await checkTLSRPT('example.com');
@@ -67,8 +73,8 @@ describe('checkTLSRPT', () => {
   });
 
   it('warns on invalid scheme', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=TLSRPTv1; rua=ftp://example.com/report']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=TLSRPTv1; rua=ftp://example.com/report'
     ]);
 
     const result = await checkTLSRPT('example.com');
@@ -78,9 +84,7 @@ describe('checkTLSRPT', () => {
   });
 
   it('reports no TLS-RPT found', async () => {
-    const error = new Error('ENODATA') as NodeJS.ErrnoException;
-    error.code = 'ENODATA';
-    vi.mocked(dns.resolveTxt).mockRejectedValue(error);
+    vi.mocked(cachedResolveTxt).mockResolvedValue([]);
 
     const result = await checkTLSRPT('example.com');
     
@@ -89,9 +93,9 @@ describe('checkTLSRPT', () => {
   });
 
   it('handles multiple TLS-RPT records', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=TLSRPTv1; rua=mailto:one@example.com'],
-      ['v=TLSRPTv1; rua=mailto:two@example.com']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=TLSRPTv1; rua=mailto:one@example.com',
+      'v=TLSRPTv1; rua=mailto:two@example.com'
     ]);
 
     const result = await checkTLSRPT('example.com');

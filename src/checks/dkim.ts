@@ -4,7 +4,7 @@
 
 import crypto from 'node:crypto';
 import type { DKIMResult, DKIMSelector, Issue } from '../types.js';
-import { dns, safeResolveTxt } from '../utils/dns.js';
+import { cachedResolveTxt } from '../utils/dns.js';
 import { extractTag, parseRecordTags } from '../utils/parser.js';
 import { COMMON_DKIM_SELECTORS, DKIM_WEAK_KEY_BITS, DKIM_STRONG_KEY_BITS, DNS_SUBDOMAIN } from '../constants.js';
 
@@ -102,8 +102,7 @@ async function checkDKIMSelector(
   const dkimDomain = `${selector}._domainkey.${domain}`;
   
   try {
-    const txtRecords = await dns.resolveTxt(dkimDomain);
-    const joinedRecords = txtRecords.map(r => r.join(''));
+    const joinedRecords = await cachedResolveTxt(dkimDomain);
     
     // Find valid DKIM record using strict validation
     const dkimRecord = findValidDKIMRecord(joinedRecords);

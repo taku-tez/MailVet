@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import dns from 'node:dns/promises';
+import { cachedResolveTxt } from '../utils/dns.js';
 import { checkDKIM } from './dkim.js';
 
-vi.mock('node:dns/promises');
+vi.mock('../utils/dns.js', async () => {
+  const actual = await vi.importActual<typeof import('../utils/dns.js')>('../utils/dns.js');
+  return {
+    ...actual,
+    cachedResolveTxt: vi.fn()
+  };
+});
 
 describe('checkDKIM', () => {
   beforeEach(() => {
@@ -10,13 +16,13 @@ describe('checkDKIM', () => {
   });
 
   it('detects valid DKIM with RSA 2048-bit key', async () => {
-    vi.mocked(dns.resolveTxt).mockImplementation(async (domain: string) => {
+    vi.mocked(cachedResolveTxt).mockImplementation(async (domain: string) => {
       if (domain === 'google._domainkey.example.com') {
         // Simulated 2048-bit RSA key (256 bytes base64)
         const key = 'A'.repeat(340);
-        return [[`v=DKIM1; k=rsa; p=${key}`]];
+        return [`v=DKIM1; k=rsa; p=${key}`];
       }
-      throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+      return [];
     });
 
     const result = await checkDKIM('example.com', ['google']);
@@ -28,11 +34,11 @@ describe('checkDKIM', () => {
   });
 
   it('detects ed25519 key and treats as strong', async () => {
-    vi.mocked(dns.resolveTxt).mockImplementation(async (domain: string) => {
+    vi.mocked(cachedResolveTxt).mockImplementation(async (domain: string) => {
       if (domain === 'default._domainkey.example.com') {
-        return [[`v=DKIM1; k=ed25519; p=MCowBQYDK2VwAyEAtest`]];
+        return [`v=DKIM1; k=ed25519; p=MCowBQYDK2VwAyEAtest`];
       }
-      throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+      return [];
     });
 
     const result = await checkDKIM('example.com', ['default']);
@@ -45,13 +51,13 @@ describe('checkDKIM', () => {
   });
 
   it('warns on weak 1024-bit RSA key', async () => {
-    vi.mocked(dns.resolveTxt).mockImplementation(async (domain: string) => {
+    vi.mocked(cachedResolveTxt).mockImplementation(async (domain: string) => {
       if (domain === 'selector1._domainkey.example.com') {
         // Simulated 1024-bit RSA key (128 bytes base64)
         const key = 'A'.repeat(170);
-        return [[`v=DKIM1; k=rsa; p=${key}`]];
+        return [`v=DKIM1; k=rsa; p=${key}`];
       }
-      throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+      return [];
     });
 
     const result = await checkDKIM('example.com', ['selector1']);
@@ -61,9 +67,7 @@ describe('checkDKIM', () => {
   });
 
   it('reports no DKIM found', async () => {
-    vi.mocked(dns.resolveTxt).mockRejectedValue(
-      Object.assign(new Error('ENODATA'), { code: 'ENODATA' })
-    );
+    vi.mocked(cachedResolveTxt).mockResolvedValue([]);
 
     const result = await checkDKIM('example.com', ['google', 'selector1']);
     
@@ -73,13 +77,13 @@ describe('checkDKIM', () => {
   });
 
   it('detects multiple selectors', async () => {
-    vi.mocked(dns.resolveTxt).mockImplementation(async (domain: string) => {
+    vi.mocked(cachedResolveTxt).mockImplementation(async (domain: string) => {
       if (domain === 'google._domainkey.example.com' || 
           domain === 'selector1._domainkey.example.com') {
         const key = 'A'.repeat(340);
-        return [[`v=DKIM1; k=rsa; p=${key}`]];
+        return [`v=DKIM1; k=rsa; p=${key}`];
       }
-      throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+      return [];
     });
 
     const result = await checkDKIM('example.com', ['google', 'selector1', 'nonexistent']);
@@ -89,11 +93,11 @@ describe('checkDKIM', () => {
   });
 
   it('detects revoked key (empty p=)', async () => {
-    vi.mocked(dns.resolveTxt).mockImplementation(async (domain: string) => {
+    vi.mocked(cachedResolveTxt).mockImplementation(async (domain: string) => {
       if (domain === 'revoked._domainkey.example.com') {
-        return [[`v=DKIM1; k=rsa; p=`]];
+        return [`v=DKIM1; k=rsa; p=`];
       }
-      throw Object.assign(new Error('ENODATA'), { code: 'ENODATA' });
+      return [];
     });
 
     const result = await checkDKIM('example.com', ['revoked']);

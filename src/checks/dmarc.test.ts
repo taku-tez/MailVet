@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import dns from 'node:dns/promises';
+import { cachedResolveTxt } from '../utils/dns.js';
 import { checkDMARC } from './dmarc.js';
 
-vi.mock('node:dns/promises');
+vi.mock('../utils/dns.js', async () => {
+  const actual = await vi.importActual<typeof import('../utils/dns.js')>('../utils/dns.js');
+  return {
+    ...actual,
+    cachedResolveTxt: vi.fn()
+  };
+});
 
 describe('checkDMARC', () => {
   beforeEach(() => {
@@ -10,8 +16,8 @@ describe('checkDMARC', () => {
   });
 
   it('detects DMARC with reject policy', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=DMARC1; p=reject; rua=mailto:dmarc@example.com']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=DMARC1; p=reject; rua=mailto:dmarc@example.com'
     ]);
 
     const result = await checkDMARC('example.com');
@@ -22,8 +28,8 @@ describe('checkDMARC', () => {
   });
 
   it('warns on quarantine policy', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=DMARC1; p=quarantine']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=DMARC1; p=quarantine'
     ]);
 
     const result = await checkDMARC('example.com');
@@ -33,8 +39,8 @@ describe('checkDMARC', () => {
   });
 
   it('high severity on none policy', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=DMARC1; p=none']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=DMARC1; p=none'
     ]);
 
     const result = await checkDMARC('example.com');
@@ -44,8 +50,8 @@ describe('checkDMARC', () => {
   });
 
   it('extracts subdomain policy', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=DMARC1; p=reject; sp=quarantine']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=DMARC1; p=reject; sp=quarantine'
     ]);
 
     const result = await checkDMARC('example.com');
@@ -55,8 +61,8 @@ describe('checkDMARC', () => {
   });
 
   it('extracts percentage', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=DMARC1; p=reject; pct=50']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=DMARC1; p=reject; pct=50'
     ]);
 
     const result = await checkDMARC('example.com');
@@ -66,8 +72,8 @@ describe('checkDMARC', () => {
   });
 
   it('warns when reporting not configured', async () => {
-    vi.mocked(dns.resolveTxt).mockResolvedValue([
-      ['v=DMARC1; p=reject']
+    vi.mocked(cachedResolveTxt).mockResolvedValue([
+      'v=DMARC1; p=reject'
     ]);
 
     const result = await checkDMARC('example.com');
@@ -77,9 +83,7 @@ describe('checkDMARC', () => {
   });
 
   it('reports no DMARC found', async () => {
-    const error = new Error('ENODATA') as NodeJS.ErrnoException;
-    error.code = 'ENODATA';
-    vi.mocked(dns.resolveTxt).mockRejectedValue(error);
+    vi.mocked(cachedResolveTxt).mockResolvedValue([]);
 
     const result = await checkDMARC('example.com');
     

@@ -3,7 +3,7 @@
  */
 
 import type { MXResult, MXRecord, Issue } from '../types.js';
-import { safeResolveMx } from '../utils/dns.js';
+import { cachedResolveMx } from '../utils/dns.js';
 import { EMAIL_PROVIDERS } from '../constants.js';
 
 const NO_MX_RESULT: MXResult = {
@@ -17,7 +17,7 @@ const NO_MX_RESULT: MXResult = {
 };
 
 export async function checkMX(domain: string): Promise<MXResult> {
-  const mxRecords = await safeResolveMx(domain);
+  const mxRecords = await cachedResolveMx(domain);
 
   if (mxRecords.length === 0) {
     return NO_MX_RESULT;
