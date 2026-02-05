@@ -165,12 +165,16 @@ async function countDNSLookupsRecursive(
     return { count: 0, loopDetected: true };
   }
 
-  // Check for circular reference
-  const recordKey = `${domain}:${record}`;
-  if (visited.has(domain.toLowerCase())) {
+  // Check for circular reference using domain + record hash
+  // This allows the same domain to appear with different records (rare but valid)
+  // while detecting actual loops where the same domain+record is visited twice
+  const normalizedDomain = domain.toLowerCase();
+  const recordKey = `${normalizedDomain}:${record.slice(0, 100)}`; // Truncate for efficiency
+  
+  if (visited.has(recordKey)) {
     return { count: 0, loopDetected: true };
   }
-  visited.add(domain.toLowerCase());
+  visited.add(recordKey);
 
   let count = 0;
   let loopDetected = false;

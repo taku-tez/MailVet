@@ -38,10 +38,16 @@ export async function analyzeDomain(
   const timeout = options.timeout || 10000;
   
   const wrapWithTimeout = async <T>(promise: Promise<T>, name: string): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`${name} check timed out`)), timeout);
+      timeoutId = setTimeout(() => reject(new Error(`${name} check timed out`)), timeout);
     });
-    return Promise.race([promise, timeoutPromise]);
+    
+    try {
+      return await Promise.race([promise, timeoutPromise]);
+    } finally {
+      clearTimeout(timeoutId!);
+    }
   };
 
   // Use Promise.allSettled to handle individual failures gracefully

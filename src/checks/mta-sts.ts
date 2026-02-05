@@ -57,7 +57,7 @@ export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
     let policy: MTASTSPolicy | undefined;
     
     if (!policyResult.ok) {
-      addPolicyFetchError(policyResult, issues);
+      addPolicyFetchError(policyResult, domain, issues);
     } else {
       policy = policyResult.policy;
       if (policy) {
@@ -89,12 +89,12 @@ interface PolicyFetchResult {
   error?: string;
 }
 
-function addPolicyFetchError(result: PolicyFetchResult, issues: Issue[]): void {
+function addPolicyFetchError(result: PolicyFetchResult, domain: string, issues: Issue[]): void {
   if (result.status === 404) {
     issues.push({
       severity: 'high',
       message: 'MTA-STS policy file not found (404)',
-      recommendation: 'Create policy file at https://mta-sts.{domain}/.well-known/mta-sts.txt'
+      recommendation: `Create policy file at https://mta-sts.${domain}/.well-known/mta-sts.txt`
     });
   } else if (result.reason === 'timeout') {
     issues.push({
@@ -106,13 +106,13 @@ function addPolicyFetchError(result: PolicyFetchResult, issues: Issue[]): void {
     issues.push({
       severity: 'high',
       message: `Could not connect to MTA-STS policy endpoint: ${result.error || 'network error'}`,
-      recommendation: 'Ensure https://mta-sts.{domain} is accessible and has valid TLS'
+      recommendation: `Ensure https://mta-sts.${domain} is accessible and has valid TLS`
     });
   } else {
     issues.push({
       severity: 'high',
       message: `MTA-STS policy fetch failed: ${result.error || 'unknown error'}`,
-      recommendation: 'Ensure https://mta-sts.{domain}/.well-known/mta-sts.txt is accessible'
+      recommendation: `Ensure https://mta-sts.${domain}/.well-known/mta-sts.txt is accessible`
     });
   }
 }

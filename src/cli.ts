@@ -16,7 +16,16 @@ import { getCloudDNSDomains, getCloudDNSDomainsOrg } from './sources/gcp.js';
 import { getAzureDNSDomains } from './sources/azure.js';
 import { getCloudflareDomains } from './sources/cloudflare.js';
 import { normalizeDomain } from './types.js';
+import { DEFAULT_CHECK_TIMEOUT_MS, DEFAULT_CONCURRENCY } from './constants.js';
 import type { ScanOptions } from './types.js';
+
+/**
+ * Parse integer with fallback to default value
+ */
+function parseIntOrDefault(value: string, defaultValue: number): number {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.json'), 'utf-8'));
@@ -37,9 +46,9 @@ program
   .option('--selectors <selectors>', 'Custom DKIM selectors (comma-separated)')
   .action(async (domain: string, options) => {
     const scanOptions: ScanOptions = {
-      dkimSelectors: options.selectors?.split(','),
+      dkimSelectors: options.selectors?.split(',').map((s: string) => s.trim()).filter(Boolean),
       verbose: options.verbose,
-      timeout: parseInt(options.timeout, 10),
+      timeout: parseIntOrDefault(options.timeout, DEFAULT_CHECK_TIMEOUT_MS),
     };
 
     const result = await analyzeDomain(domain, scanOptions);
@@ -198,9 +207,9 @@ program
     console.error(`Scanning ${domains.length} domains...`);
 
     const scanOptions: ScanOptions = {
-      concurrency: parseInt(options.concurrency, 10),
-      dkimSelectors: options.selectors?.split(','),
-      timeout: parseInt(options.timeout, 10),
+      concurrency: parseIntOrDefault(options.concurrency, DEFAULT_CONCURRENCY),
+      dkimSelectors: options.selectors?.split(',').map((s: string) => s.trim()).filter(Boolean),
+      timeout: parseIntOrDefault(options.timeout, DEFAULT_CHECK_TIMEOUT_MS),
     };
 
     const results = await analyzeMultiple(domains, scanOptions);
