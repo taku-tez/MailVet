@@ -60,6 +60,22 @@ export async function checkDMARC(domain: string): Promise<DMARCResult> {
       });
     }
 
+    // Check version tag (v=DMARC1 is required)
+    const version = parsedTags.tags.get('v');
+    if (!version) {
+      issues.push({
+        severity: 'critical',
+        message: 'DMARC record missing version tag (v=DMARC1)',
+        recommendation: 'Add v=DMARC1 at the start of the DMARC record'
+      });
+    } else if (version.toUpperCase() !== 'DMARC1') {
+      issues.push({
+        severity: 'high',
+        message: `Invalid DMARC version: "${version}" (expected DMARC1)`,
+        recommendation: 'Use v=DMARC1 for the version tag'
+      });
+    }
+
     const policy = parsedTags.tags.get('p') as 'none' | 'quarantine' | 'reject' | undefined;
     const subdomainPolicy = parsedTags.tags.get('sp') as 'none' | 'quarantine' | 'reject' | undefined;
     const rua = parseReportingAddresses(parsedTags.tags.get('rua'));

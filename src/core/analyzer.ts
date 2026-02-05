@@ -81,8 +81,8 @@ export async function analyzeDomain(
     wrapWithTimeout(checkDMARC(domain), 'DMARC'),
     wrapWithTimeout(checkMX(domain), 'MX'),
     wrapWithTimeout(checkBIMI(domain), 'BIMI'),
-    wrapWithTimeout(checkMTASTS(domain), 'MTA-STS'),
-    wrapWithTimeout(checkTLSRPT(domain, { verifyEndpoints: options.verifyTlsRptEndpoints }), 'TLS-RPT'),
+    wrapWithTimeout(checkMTASTS(domain, { timeout }), 'MTA-STS'),
+    wrapWithTimeout(checkTLSRPT(domain, { verifyEndpoints: options.verifyTlsRptEndpoints, timeout }), 'TLS-RPT'),
   ]);
 
   // Extract results, creating failed results for rejected promises

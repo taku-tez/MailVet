@@ -28,9 +28,14 @@ const NO_MTA_STS_RESULT: MTASTSResult = {
   }]
 };
 
-export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
+export interface MTASTSOptions {
+  timeout?: number;
+}
+
+export async function checkMTASTS(domain: string, options: MTASTSOptions = {}): Promise<MTASTSResult> {
   const issues: Issue[] = [];
   const stsDomain = `${DNS_SUBDOMAIN.MTA_STS}.${domain}`;
+  const httpTimeout = options.timeout || DEFAULT_HTTP_TIMEOUT_MS;
 
   try {
     const txtRecords = await resolveTxtRecords(stsDomain);
@@ -68,7 +73,7 @@ export async function checkMTASTS(domain: string): Promise<MTASTSResult> {
     }
 
     // Try to fetch the policy file
-    const policyResult = await fetchMTASTSPolicy(domain);
+    const policyResult = await fetchMTASTSPolicy(domain, httpTimeout);
     let policy: MTASTSPolicy | undefined;
     
     if (!policyResult.ok) {
@@ -203,12 +208,12 @@ function validatePolicy(policy: ParsedPolicy, issues: Issue[]): void {
   }
 }
 
-async function fetchMTASTSPolicy(domain: string): Promise<PolicyFetchResult> {
+async function fetchMTASTSPolicy(domain: string, timeout: number): Promise<PolicyFetchResult> {
   const policyUrl = `https://mta-sts.${domain}/.well-known/mta-sts.txt`;
   
   try {
     const response = await fetch(policyUrl, {
-      signal: AbortSignal.timeout(DEFAULT_HTTP_TIMEOUT_MS)
+      signal: AbortSignal.timeout(timeout)
     });
     
     if (!response.ok) {

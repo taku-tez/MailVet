@@ -79,11 +79,20 @@ export function isValidEmail(email: string): boolean {
 
 /**
  * Parse mailto: URI and extract email
+ * Handles RFC 8460 size limit suffix (!size) and query parameters
+ * Examples: mailto:report@example.com, mailto:report@example.com!10m, mailto:report@example.com?subject=TLS
  */
 export function parseMailtoUri(uri: string): string | undefined {
   if (!uri.toLowerCase().startsWith('mailto:')) {
     return undefined;
   }
-  const email = uri.slice(7).split('?')[0]; // Remove query params
+  let email = uri.slice(7);
+  
+  // Remove query parameters (e.g., ?subject=...)
+  email = email.split('?')[0];
+  
+  // Remove RFC 8460 size limit suffix (e.g., !10m, !1024)
+  email = email.split('!')[0];
+  
   return isValidEmail(email) ? email : undefined;
 }

@@ -1,6 +1,6 @@
 {
   "name": "mailvet",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Email security configuration scanner - SPF/DKIM/DMARC/MX validation",
   "type": "module",
   "main": "dist/index.js",
