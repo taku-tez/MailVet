@@ -1,11 +1,11 @@
 {
-  "name": "mailvet",
-  "version": "0.7.0",
-  "description": "Email security configuration scanner - SPF/DKIM/DMARC/MX validation",
+  "name": "dnsvet",
+  "version": "0.7.1",
+  "description": "DNS and email security scanner - SPF/DKIM/DMARC/DNSSEC/MTA-STS validation",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "mailvet": "dist/cli.js"
+    "dnsvet": "dist/cli.js"
   },
   "scripts": {
     "build": "tsc",

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * MailVet CLI - Email security configuration scanner
+ * DNSVet CLI - Email security configuration scanner
  */
 
 import { Command } from 'commander';
@@ -47,8 +47,8 @@ const pkg = JSON.parse(await fs.readFile(path.join(__dirname, '..', 'package.jso
 const program = new Command();
 
 program
-  .name('mailvet')
-  .description('Email security configuration scanner - SPF/DKIM/DMARC/MX validation')
+  .name('dnsvet')
+  .description('DNS and email security scanner - SPF/DKIM/DMARC/DNSSEC/MTA-STS')
   .version(pkg.version);
 
 program

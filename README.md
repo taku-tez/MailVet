@@ -1,20 +1,34 @@
-# MailVet 📧
+# DNSVet 🔐
 
-Email security configuration scanner - validates SPF, DKIM, DMARC, and MX records.
+DNS and email security scanner - validates SPF, DKIM, DMARC, DNSSEC, MTA-STS, TLS-RPT, BIMI, and more.
 
 ## Features
 
-- **SPF Validation**: Check sender policy framework configuration
-- **DKIM Detection**: Scan common DKIM selectors and validate key strength
-- **DMARC Analysis**: Verify policy, reporting, and subdomain settings
-- **MX Inspection**: Identify mail servers and email providers
-- **Grading System**: A-F grades based on security configuration
-- **Recommendations**: Actionable suggestions to improve email security
+### Email Security
+- **SPF Validation**: RFC 7208 compliant, recursive lookup counting
+- **DKIM Detection**: Scan common selectors, key strength validation (RSA/ed25519)
+- **DMARC Analysis**: Policy, reporting, subdomain settings
+- **BIMI Check**: Logo URL, VMC certificate validation
+
+### DNS Security
+- **DNSSEC Validation**: DS/DNSKEY records, algorithm strength, chain of trust
+- **MX Inspection**: Mail servers, provider detection, Null MX support
+
+### Transport Security
+- **MTA-STS**: Policy mode (enforce/testing), MX consistency
+- **TLS-RPT**: Reporting endpoints, mailto/https validation
+- **ARC Readiness**: Signing capability assessment
+
+### Multi-Cloud Support
+- AWS Route53
+- Google Cloud DNS (organization-wide scanning)
+- Azure DNS
+- Cloudflare
 
 ## Installation
 
 ```bash
-npm install -g mailvet
+npm install -g dnsvet
 ```
 
 ## Usage
@@ -23,217 +37,151 @@ npm install -g mailvet
 
 ```bash
 # Basic check
-mailvet check example.com
+dnsvet check example.com
 
 # JSON output
-mailvet check example.com --json
+dnsvet check example.com --json
 
-# Verbose mode
-mailvet check example.com --verbose
+# Verbose mode with all issues
+dnsvet check example.com --verbose
 
 # Custom DKIM selectors
-mailvet check example.com --selectors google,selector1,custom
+dnsvet check example.com --selectors google,selector1,custom
+
+# Verify TLS-RPT endpoints
+dnsvet check example.com --verify-tlsrpt-endpoints
 ```
 
 ### Bulk Scanning
 
 ```bash
 # From file
-mailvet scan -f domains.txt
+dnsvet scan --file domains.txt
 
 # From stdin
-cat domains.txt | mailvet scan --stdin
+cat domains.txt | dnsvet scan --stdin
 
-# Output to file
-mailvet scan -f domains.txt -o results.json --json
-
-# Control concurrency
-mailvet scan -f domains.txt -c 10
+# JSON output
+dnsvet scan --file domains.txt --json -o results.json
 ```
 
-### Cloud Provider Integration
+### Cloud Provider Scanning
 
 ```bash
 # AWS Route53
-mailvet scan --aws
-mailvet scan --aws --aws-profile production
-mailvet scan --aws --aws-region us-east-1
-mailvet scan --aws --aws-role-arn arn:aws:iam::123456789:role/DNSReadOnly
+dnsvet scan --aws
+dnsvet scan --aws --aws-profile production
 
 # Google Cloud DNS
-mailvet scan --gcp
-mailvet scan --gcp --gcp-project my-project
-mailvet scan --gcp --gcp-key-file /path/to/service-account.json
-mailvet scan --gcp --gcp-impersonate sa@project.iam.gserviceaccount.com
+dnsvet scan --gcp --gcp-project my-project
+dnsvet scan --gcp --gcp-org 123456789  # Organization-wide
 
 # Azure DNS
-mailvet scan --azure
-mailvet scan --azure --azure-subscription xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-mailvet scan --azure --azure-client-id xxx --azure-client-secret xxx --azure-tenant-id xxx
+dnsvet scan --azure
+dnsvet scan --azure --azure-subscription xxx-xxx
 
 # Cloudflare
-mailvet scan --cloudflare                              # uses CLOUDFLARE_API_TOKEN
-mailvet scan --cloudflare --cloudflare-token xxx       # explicit token
-mailvet scan --cloudflare --cloudflare-email x@y --cloudflare-key xxx  # Global API Key
-
-# Combine multiple sources
-mailvet scan --aws --gcp --cloudflare -o results.json --json
+dnsvet scan --cloudflare --cloudflare-token $CF_TOKEN
 ```
 
-### Authentication Methods
-
-| Provider | Methods |
-|----------|---------|
-| **AWS** | Profile (`--aws-profile`), Env vars (`AWS_ACCESS_KEY_ID`), IAM role, SSO |
-| **GCP** | Key file (`--gcp-key-file`), `gcloud auth`, Impersonation, Compute Engine SA |
-| **Azure** | Service principal (`--azure-client-id/secret/tenant`), `az login`, Managed Identity |
-| **Cloudflare** | API Token (`--cloudflare-token` or `CLOUDFLARE_API_TOKEN`), Global API Key |
-
-### List Domains from Providers
+### List Cloud Domains
 
 ```bash
-# List all domains without scanning
-mailvet sources --aws --gcp --cloudflare
-mailvet sources --aws --json
+dnsvet list --aws
+dnsvet list --gcp --gcp-org 123456789
+dnsvet list --cloudflare --json
 ```
 
 ## Output Example
 
 ```
-📧 example.com - Grade: A (100/100)
+📧 example.com - Grade: A (95/100)
 
 SPF      ✅ Found
-         Record: v=spf1 include:_spf.google.com -all
-         ✅ Mechanism: -all
-         ✅ DNS lookups: 4/10
+   Record: v=spf1 include:_spf.google.com -all
+   ✅ Mechanism: -all
+   ✅ DNS lookups: 3/10
 
 DKIM     ✅ Found
-         ✅ google._domainkey (2048-bit)
-         ✅ selector1._domainkey (2048-bit)
+   ✅ google._domainkey (2048-bit rsa)
+   ✅ selector1._domainkey (2048-bit rsa)
 
 DMARC    ✅ Found
-         Record: v=DMARC1; p=reject; rua=mailto:dmarc@example.com
-         ✅ Policy: p=reject
-         ✅ Reporting: enabled
+   ✅ Policy: p=reject
+   ✅ Reporting: enabled
 
 MX       ✅ Found
-         ✅ aspmx.l.google.com (pri: 1)
-         ℹ️ Email provider detected: Google Workspace
+   ✅ aspmx.l.google.com (pri: 1)
+   ℹ️ Email provider detected: Google Workspace
 
-BIMI     ✅ Found
-         ✅ Logo: https://example.com/logo.svg
-         ✅ VMC: configured
+DNSSEC   ✅ Found
+   ✅ Chain of trust: Valid
+   ℹ️ DS: Algorithm 13 (ECDSAP256SHA256)
+   ℹ️ DNSKEY: 1 KSK + 1 ZSK
 
 MTA-STS  ✅ Found
-         ✅ Mode: enforce
-         ℹ️ Max age: 7 days
+   ✅ Mode: enforce
 
 TLS-RPT  ✅ Found
-         ✅ Reporting: 1 endpoint(s)
-
-ARC      ✅ Ready
-         ✅ Can sign ARC headers
+   ✅ Reporting: 1 endpoint(s)
 
 Recommendations:
-  (none - perfect configuration!)
+  1. ✨ [オプション] BIMIを設定すると、対応メールクライアントでロゴが表示されます
 ```
 
-## Grading Criteria
+## Grading System
 
 | Grade | Score | Requirements |
 |-------|-------|--------------|
-| **A** | 90-100 | SPF (-all) + DKIM (2048-bit) + DMARC (reject) |
-| **B** | 75-89 | SPF + DKIM + DMARC (quarantine) |
-| **C** | 50-74 | SPF + DMARC (any policy) |
-| **D** | 25-49 | SPF only |
-| **F** | 0-24 | Missing critical records |
+| A | 90-100 | SPF (-all) + DKIM (2048-bit) + DMARC (reject) |
+| B | 75-89 | SPF + DKIM + DMARC (quarantine) |
+| C | 50-74 | SPF + DMARC (any policy) |
+| D | 25-49 | SPF only |
+| F | 0-24 | Major issues or missing records |
 
-## Checks Performed
-
-### Core Checks
-
-#### SPF (Sender Policy Framework)
-- Record existence
-- Mechanism strength (-all > ~all > ?all > +all)
-- DNS lookup count (max 10)
-- Deprecated mechanisms (ptr)
-- Multiple record detection
-
-#### DKIM (DomainKeys Identified Mail)
-- Common selector detection (google, selector1, default, etc.)
-- Key length validation (≥2048-bit recommended)
-- Multiple selector support
-
-#### DMARC (Domain-based Message Authentication)
-- Record existence
-- Policy strength (reject > quarantine > none)
-- Subdomain policy (sp=)
-- Reporting configuration (rua/ruf)
-- Percentage coverage (pct=)
-
-#### MX (Mail Exchange)
-- Record existence
-- Priority configuration
-- Redundancy check
-- Email provider identification
-
-### Advanced Checks
-
-#### BIMI (Brand Indicators for Message Identification)
-- Logo URL validation (HTTPS required)
-- SVG Tiny PS format recommendation
-- VMC (Verified Mark Certificate) detection
-- Prerequisite check (requires DMARC p=quarantine or reject)
-
-#### MTA-STS (Mail Transfer Agent Strict Transport Security)
-- DNS record validation (_mta-sts.domain)
-- Policy file fetch (https://mta-sts.domain/.well-known/mta-sts.txt)
-- Mode validation (enforce > testing > none)
-- MX host matching
-- Max age recommendations
-
-#### TLS-RPT (SMTP TLS Reporting)
-- DNS record validation (_smtp._tls.domain)
-- Reporting endpoint validation (mailto: or https:)
-- Multiple endpoint support
-
-#### ARC (Authenticated Received Chain) Readiness
-- Prerequisites check (DKIM required)
-- Key strength validation for ARC signing
-- DMARC dependency check
-- Note: ARC is header-based, this checks signing readiness
-
-## Programmatic Usage
-
-```typescript
-import { analyzeDomain, analyzeMultiple } from 'mailvet';
-
-// Single domain
-const result = await analyzeDomain('example.com');
-console.log(result.grade); // 'A', 'B', 'C', 'D', or 'F'
-console.log(result.score); // 0-100
-console.log(result.recommendations);
-
-// Multiple domains
-const results = await analyzeMultiple([
-  'example.com',
-  'test.org'
-], { concurrency: 5 });
-```
+### Bonus Points (up to +15)
+- DNSSEC enabled: +5
+- BIMI with VMC: +5
+- MTA-STS enforce: +4
+- TLS-RPT: +3
+- ARC ready: +3
 
 ## Exit Codes
 
-- `0` - All domains have grade D or better
-- `1` - At least one domain has grade F
+- `0`: Grade A-D (passing)
+- `1`: Grade F (failing)
 
-## Related Projects
+## Environment Variables
 
-Part of the **xxVet** security tool series:
-- [AgentVet](https://github.com/taku-tez/agentvet) - AI Agent Security Scanner
-- [PermitVet](https://github.com/taku-tez/PermitVet) - Cloud IAM Scanner
-- [SubVet](https://github.com/taku-tez/SubVet) - Subdomain Takeover Scanner
-- [ReachVet](https://github.com/taku-tez/ReachVet) - Supply Chain Reachability
+```bash
+# AWS
+AWS_PROFILE=default
+AWS_ACCESS_KEY_ID=xxx
+AWS_SECRET_ACCESS_KEY=xxx
+
+# GCP
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
+
+# Azure
+AZURE_CLIENT_ID=xxx
+AZURE_CLIENT_SECRET=xxx
+AZURE_TENANT_ID=xxx
+
+# Cloudflare
+CLOUDFLARE_API_TOKEN=xxx
+# or
+CLOUDFLARE_EMAIL=xxx
+CLOUDFLARE_API_KEY=xxx
+```
 
 ## License
 
 MIT
+
+## Related Tools
+
+Part of the **xxVet** security tool series:
+- [AgentVet](https://github.com/taku-tez/agentvet) - AI agent security scanner
+- [PermitVet](https://github.com/taku-tez/PermitVet) - Cloud IAM analyzer
+- [SubVet](https://github.com/taku-tez/SubVet) - Subdomain takeover scanner
+- [ExtVet](https://github.com/taku-tez/ExtVet) - Browser extension scanner
